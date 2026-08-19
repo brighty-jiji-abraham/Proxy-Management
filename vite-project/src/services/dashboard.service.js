@@ -31,6 +31,18 @@ const dashboardServices = {
     // on a private port on the public server that the browser cannot reach.
     getTunnelStatus: async () => (await api.get("/tunnel")).data,
 
+    // Tunnel settings live in MongoDB alongside the routes, so they can be
+    // edited here instead of in .env. The token is never sent back - the API
+    // reports only whether one is set.
+    getTunnelConfig: async () => (await api.get("/tunnel/config")).data,
+
+    // Recent requests plus a per-minute traffic series, held in memory by the
+    // tunnel client. Resets with the proxy - the durable record is its log.
+    getTunnelRequests: async (limit = 100) =>
+        (await api.get(`/tunnel/requests?limit=${limit}`)).data,
+    saveTunnelConfig: async (fields) =>
+        (await api.post("/tunnel/config", fields)).data,
+
     // --- backend management (master key) ----------------------------------
     addBackend: async ({ route, url }) =>
         (await api.post("/backends/add", { route, url })).data,
