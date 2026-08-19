@@ -1,12 +1,27 @@
-import React, { useState } from 'react'
-import { Link, Outlet } from 'react-router-dom'
+import React from 'react'
+import { NavLink, Outlet } from 'react-router-dom'
 import {
-    ShieldCheck, Activity, Plus, Eye, Zap
+    ShieldCheck, Activity, Plus, Eye, Zap, Server, Radio, Cpu, LogOut
 } from 'lucide-react'
+import { setApiKey } from '../api/api'
 
 
-function AuthLayout() {
-    const [activeNav, setActiveNav] = useState('dashboard')
+// Declared once rather than repeated per <Link>: adding a page is now a row
+// here instead of a copied block.
+const NAV_ITEMS = [
+    { to: '/dashboard',    icon: <Activity />, label: 'Mission Control', description: 'Central hub' },
+    { to: '/backends',     icon: <Server />,   label: 'Backends',        description: 'Routes and health' },
+    { to: '/tunnel',       icon: <Radio />,    label: 'Tunnel',          description: 'Outbound link' },
+    { to: '/ollama',       icon: <Cpu />,      label: 'Ollama',          description: 'Local models' },
+    { to: '/generate-key', icon: <Plus />,     label: 'Key Forge',       description: 'Generate tokens' },
+    { to: '/list-keys',    icon: <Eye />,      label: 'Key Vault',       description: 'Manage access' },
+]
+
+
+function AuthLayout({ onSignOut }) {
+    // Active state came from useState, so it only updated when a link was
+    // clicked - a back/forward navigation or a direct URL left the wrong item
+    // highlighted. NavLink derives it from the current route instead.
 
 
     return (
@@ -121,35 +136,30 @@ function AuthLayout() {
                         {/* Nav */}
                         <nav className="px-6 pb-6 relative">
                             <div className="space-y-3">
-                                <Link to="/dashboard" onClick={() => setActiveNav('dashboard')}>
-                                    <FuturisticNavItem
-                                        icon={<Activity />}
-                                        label="Mission Control"
-                                        active={activeNav === 'dashboard'}
-                                        description="Central hub"
-                                    />
-                                </Link>
-
-
-                                <Link to="/generate-key" onClick={() => setActiveNav('generate')}>
-                                    <FuturisticNavItem
-                                        icon={<Plus />}
-                                        label="Key Forge"
-                                        active={activeNav === 'generate'}
-                                        description="Generate tokens"
-                                    />
-                                </Link>
-
-
-                                <Link to="/list-keys" onClick={() => setActiveNav('list')}>
-                                    <FuturisticNavItem
-                                        icon={<Eye />}
-                                        label="Key Vault"
-                                        active={activeNav === 'list'}
-                                        description="Manage access"
-                                    />
-                                </Link>
+                                {NAV_ITEMS.map((item) => (
+                                    <NavLink key={item.to} to={item.to}>
+                                        {({ isActive }) => (
+                                            <FuturisticNavItem
+                                                icon={item.icon}
+                                                label={item.label}
+                                                description={item.description}
+                                                active={isActive}
+                                            />
+                                        )}
+                                    </NavLink>
+                                ))}
                             </div>
+
+                            <button
+                                onClick={() => {
+                                    setApiKey('')
+                                    onSignOut?.()
+                                }}
+                                className="mt-6 w-full flex items-center gap-3 px-4 py-3 rounded-xl text-slate-400 hover:text-red-300 hover:bg-red-500/10 border border-transparent hover:border-red-500/30 transition"
+                            >
+                                <LogOut className="w-5 h-5" />
+                                <span className="text-sm font-semibold">Sign out</span>
+                            </button>
                         </nav>
                     </div>
                 </aside>

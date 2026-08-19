@@ -12,19 +12,19 @@ import {
 
 
 function Dashboard() {
-    const darkMode = true 
     const [dashboardData, setDashboardData] = useState({})
     const [configData, setConfigData] = useState({})
     const [metricsData, setMetricsData] = useState({})
     
     const dashboardDetails = useQuery({
         queryKey: ['dashboard'],
-        queryFn: () => dashboardServices.getDashboardDetails().then((res) => {
-            if(res.data){
-                setDashboardData(res.data)
-            }
-            return res.data
-        }),
+        // The service layer now returns the response body directly and lets
+        // errors reject, so react-query can tell a failure from empty data.
+        queryFn: async () => {
+            const data = await dashboardServices.getDashboardDetails()
+            if (data) setDashboardData(data)
+            return data
+        },
         refetchInterval: 30000,
         staleTime: 10000
     })
@@ -32,12 +32,13 @@ function Dashboard() {
 
     const configDetails = useQuery({
         queryKey: ['config'],
-        queryFn: () => dashboardServices.getConfigDetails().then((res) => {
-            if(res.data){
-                setConfigData(res.data)
-            }
-            return res.data
-        }),
+        // The service layer now returns the response body directly and lets
+        // errors reject, so react-query can tell a failure from empty data.
+        queryFn: async () => {
+            const data = await dashboardServices.getConfigDetails()
+            if (data) setConfigData(data)
+            return data
+        },
         refetchInterval: 30000,
         staleTime: 10000
     })
@@ -45,12 +46,13 @@ function Dashboard() {
 
     const metricsDetails = useQuery({
         queryKey: ['metrics'],
-        queryFn: () => dashboardServices.getMetricsDetails().then((res) => {
-            if(res.data){
-                setMetricsData(res.data)
-            }
-            return res.data
-        }),
+        // The service layer now returns the response body directly and lets
+        // errors reject, so react-query can tell a failure from empty data.
+        queryFn: async () => {
+            const data = await dashboardServices.getMetricsDetails()
+            if (data) setMetricsData(data)
+            return data
+        },
         refetchInterval: 30000,
         staleTime: 10000
     })
