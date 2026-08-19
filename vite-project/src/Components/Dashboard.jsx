@@ -7,7 +7,7 @@ import {
     Wifi, Shield, BarChart3, Eye, Settings, ArrowRight,
     Timer, Cpu, HardDrive, Network, Signal, Key, Route,
     Users, FileText, Target, Code, Filter, BarChart2,
-    PieChart, Layers, Hash, Gauge
+    PieChart, Layers, Hash, Gauge, HelpCircle
 } from 'lucide-react'
 
 
@@ -655,11 +655,25 @@ function SystemMetricCard({ icon, title, value, subtitle, color }) {
 // Service Card Component
 function ServiceCard({ route, service }) {
     const isHealthy = service.status === 'healthy'
-    const responseTime = service.response_time || 0
-    const lastCheck = new Date(service.last_check * 1000)
+    // Three states, not two: a backend that has not been probed yet is not the
+    // same as one that is down, and rendering both red made a freshly started
+    // proxy look like a total outage.
+    const isUnknown = !service.status || service.status === 'unknown'
+
+    // An unprobed backend reports null for these, not 0. Coercing null to 0
+    // showed "0.00ms" as if the backend were instant, and `new Date(null*1000)`
+    // is the Unix epoch, which rendered as a plausible-looking 05:30 in UTC+5:30.
+    const hasResponseTime = typeof service.response_time === 'number'
+    const responseTime = hasResponseTime ? service.response_time : null
+    const lastCheck = service.last_check ? new Date(service.last_check * 1000) : null
+
+    // The health service stores this as `custom_health_route`; reading
+    // `health_route` left the row blank.
+    const healthRoute = service.custom_health_route || service.health_route
 
 
     const getResponseTimeColor = (time) => {
+        if (time == null) return 'none'
         if (time < 100) return 'green'
         if (time < 500) return 'yellow'
         if (time < 1000) return 'orange'
@@ -683,11 +697,17 @@ function ServiceCard({ route, service }) {
                 <div className="flex items-center justify-between mb-4">
                     <div className="flex items-center space-x-3">
                         <div className={`p-2 rounded-xl ${
-                            isHealthy 
-                                ? 'bg-green-500/20 text-green-400'
-                                : 'bg-red-500/20 text-red-400'
+                            isUnknown
+                                ? 'bg-slate-600/20 text-slate-400'
+                                : isHealthy
+                                    ? 'bg-green-500/20 text-green-400'
+                                    : 'bg-red-500/20 text-red-400'
                         }`}>
-                            {isHealthy ? <CheckCircle className="w-5 h-5" /> : <XCircle className="w-5 h-5" />}
+                            {isUnknown
+                                ? <HelpCircle className="w-5 h-5" />
+                                : isHealthy
+                                    ? <CheckCircle className="w-5 h-5" />
+                                    : <XCircle className="w-5 h-5" />}
                         </div>
                         <div>
                             <h3 className="font-bold text-lg text-slate-50">
@@ -720,12 +740,13 @@ function ServiceCard({ route, service }) {
                             </span>
                         </div>
                         <span className={`font-bold ${
+                            timeColor === 'none' ? 'text-slate-500' :
                             timeColor === 'green' ? 'text-green-400' :
                             timeColor === 'yellow' ? 'text-yellow-400' :
                             timeColor === 'orange' ? 'text-orange-400' :
                             'text-red-400'
                         }`}>
-                            {responseTime.toFixed(2)}ms
+                            {hasResponseTime ? `${responseTime.toFixed(2)}ms` : '--'}
                         </span>
                     </div>
 
@@ -753,7 +774,7 @@ function ServiceCard({ route, service }) {
                             </span>
                         </div>
                         <span className="text-sm font-mono text-slate-400">
-                            {service.health_route}
+                            {healthRoute || '--'}
                         </span>
                     </div>
 
@@ -767,7 +788,7 @@ function ServiceCard({ route, service }) {
                             </span>
                         </div>
                         <span className="text-sm text-slate-400">
-                            {lastCheck.toLocaleTimeString()}
+                            {lastCheck ? lastCheck.toLocaleTimeString() : 'never'}
                         </span>
                     </div>
                 </div>
