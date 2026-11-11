@@ -1,7 +1,7 @@
-import React from 'react'
-import { NavLink, Outlet } from 'react-router-dom'
+import React, { useEffect, useRef } from 'react'
+import { NavLink, Outlet, useLocation } from 'react-router-dom'
 import {
-    ShieldCheck, Activity, Plus, Eye, Zap, Server, Radio, Cpu, LogOut
+    ShieldCheck, Activity, Plus, Eye, Zap, Server, Radio, Cpu, LogOut, History
 } from 'lucide-react'
 import { setApiKey } from '../api/api'
 
@@ -13,19 +13,36 @@ const NAV_ITEMS = [
     { to: '/backends',     icon: <Server />,   label: 'Backends',        description: 'Routes and health' },
     { to: '/tunnel',       icon: <Radio />,    label: 'Tunnel',          description: 'Outbound link' },
     { to: '/ollama',       icon: <Cpu />,      label: 'Ollama',          description: 'Local models' },
+    { to: '/calls',        icon: <History />,  label: 'Call History',    description: 'Requests per service' },
     { to: '/generate-key', icon: <Plus />,     label: 'Key Forge',       description: 'Generate tokens' },
     { to: '/list-keys',    icon: <Eye />,      label: 'Key Vault',       description: 'Manage access' },
 ]
 
 
 function AuthLayout({ onSignOut }) {
+    const isCallsPage = useLocation().pathname.replace(/\/+$/, '') === '/calls'
+    const navigationRef = useRef(null)
+    useEffect(() => {
+        if (!isCallsPage) return
+        const mobile = window.matchMedia('(max-width: 900px)')
+        const revealActiveLink = () => {
+            const navigation = navigationRef.current
+            const active = navigation?.querySelector('[aria-current="page"]')
+            if (mobile.matches && active) {
+                navigation.scrollLeft = active.offsetLeft - (navigation.clientWidth - active.clientWidth) / 2
+            }
+        }
+        revealActiveLink()
+        mobile.addEventListener('change', revealActiveLink)
+        return () => mobile.removeEventListener('change', revealActiveLink)
+    }, [isCallsPage])
     // Active state came from useState, so it only updated when a link was
     // clicked - a back/forward navigation or a direct URL left the wrong item
     // highlighted. NavLink derives it from the current route instead.
 
 
     return (
-        <div className="flex flex-col w-screen h-screen transition-all duration-500 relative overflow-hidden bg-gradient-to-br from-slate-900 via-slate-950 to-slate-900">
+        <div className={`${isCallsPage ? 'calls-shell ' : ''}flex flex-col w-screen h-screen transition-all duration-500 relative overflow-hidden bg-gradient-to-br from-slate-900 via-slate-950 to-slate-900`}>
             {/* Enhanced Animated Background */}
             <div className="absolute inset-0 overflow-hidden pointer-events-none">
                 {/* Primary gradient overlay – slightly lighter */}
@@ -104,7 +121,7 @@ function AuthLayout({ onSignOut }) {
 
 
                         {/* Status panel (unchanged) */}
-                        <div className="p-6 relative">
+                        <div className="layout-status-panel p-6 relative">
                             <div className="relative p-6 rounded-3xl bg-gradient-to-br from-violet-400/10 via-violet-500/6 to-violet-600/10 border border-violet-400/20 overflow-hidden">
                                 <div className="absolute inset-0 bg-gradient-to-r from-violet-400/6 to-violet-500/6 animate-pulse"></div>
                                 <div className="absolute inset-0 bg-[linear-gradient(45deg,transparent_48%,rgba(255,255,255,0.02)_50%,transparent_52%)] bg-[length:20px_20px]"></div>
@@ -134,7 +151,7 @@ function AuthLayout({ onSignOut }) {
 
 
                         {/* Nav */}
-                        <nav className="px-6 pb-6 relative">
+                        <nav ref={navigationRef} className="px-6 pb-6 relative">
                             <div className="space-y-3">
                                 {NAV_ITEMS.map((item) => (
                                     <NavLink key={item.to} to={item.to}>
@@ -181,7 +198,7 @@ function AuthLayout({ onSignOut }) {
 
 
             {/* Custom animation CSS */}
-            <style jsx>{`
+            <style>{`
                 @keyframes blob {
                     0%   { transform: translate(0px, 0px)   scale(1); }
                     33%  { transform: translate(30px, -50px) scale(1.1); }

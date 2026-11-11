@@ -3,9 +3,10 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useForm } from 'react-hook-form'
 import {
     Radio, RefreshCw, AlertCircle, CheckCircle, XCircle,
-    Globe, Server, Activity, Repeat, Network, Clock, Save, Database, Inbox,
+    Globe, Server, Activity, Repeat, Network, Clock, Save, Database,
 } from 'lucide-react'
 import dashboardServices from '../services/dashboard.service'
+import { TrafficChart, RequestLog } from './RequestActivity'
 
 const duration = (seconds) => {
     if (!seconds) return '0s'
@@ -19,149 +20,6 @@ const duration = (seconds) => {
     return `${s}s`
 }
 
-const clockOf = (ts) =>
-    new Date(ts * 1000).toLocaleTimeString([], { hour12: false })
-
-const statusTone = (r) => {
-    if (r.error || r.status == null) return 'text-red-400'
-    if (r.status >= 500) return 'text-red-400'
-    if (r.status >= 400) return 'text-amber-400'
-    if (r.status === 101) return 'text-violet-300'
-    return 'text-emerald-400'
-}
-
-/**
- * Requests per minute over the last hour.
- *
- * Drawn with plain divs rather than a charting library: one bar chart does not
- * justify pulling ~50kB of dependency into a console this small. The series
- * arrives zero-filled, so a quiet minute is a real zero rather than a gap.
- */
-function TrafficChart({ series }) {
-    const peak = Math.max(1, ...series.map((b) => b.count))
-    const total = series.reduce((n, b) => n + b.count, 0)
-    const errors = series.reduce((n, b) => n + b.errors, 0)
-
-    return (
-        <div className="p-6 rounded-2xl bg-slate-900/60 border border-slate-800/70">
-            <div className="flex items-baseline justify-between gap-4 mb-4 flex-wrap">
-                <h3 className="text-xl font-bold text-slate-50">Traffic</h3>
-                <div className="text-sm text-slate-400">
-                    <span className="font-mono text-slate-200">{total}</span> requests in the
-                    last hour
-                    {errors > 0 && (
-                        <>
-                            {' · '}
-                            <span className="font-mono text-red-400">{errors}</span> failed
-                        </>
-                    )}
-                </div>
-            </div>
-
-            {total === 0 ? (
-                <p className="text-sm text-slate-500 py-8 text-center">
-                    Nothing has crossed the tunnel yet.
-                </p>
-            ) : (
-                <>
-                    <div className="flex items-end gap-[2px] h-28">
-                        {series.map((b) => {
-                            const h = b.count ? Math.max(3, (b.count / peak) * 100) : 0
-                            return (
-                                <div
-                                    key={b.minute}
-                                    className="flex-1 flex flex-col justify-end h-full group relative"
-                                    title={`${clockOf(b.minute)} — ${b.count} request${
-                                        b.count === 1 ? '' : 's'
-                                    }${b.errors ? `, ${b.errors} failed` : ''}${
-                                        b.avg_ms ? `, avg ${b.avg_ms}ms` : ''
-                                    }`}
-                                >
-                                    {h > 0 && (
-                                        <div
-                                            style={{ height: `${h}%` }}
-                                            className={`w-full rounded-sm transition-colors ${
-                                                b.errors
-                                                    ? 'bg-red-500/70 group-hover:bg-red-400'
-                                                    : 'bg-violet-500/60 group-hover:bg-violet-400'
-                                            }`}
-                                        />
-                                    )}
-                                </div>
-                            )
-                        })}
-                    </div>
-                    <div className="flex justify-between mt-2 text-xs text-slate-600 font-mono">
-                        <span>60m ago</span>
-                        <span>now</span>
-                    </div>
-                </>
-            )}
-        </div>
-    )
-}
-
-/** The last requests to cross the tunnel, newest first. */
-function RequestLog({ requests, capacity }) {
-    return (
-        <div className="p-6 rounded-2xl bg-slate-900/60 border border-slate-800/70">
-            <div className="flex items-baseline justify-between gap-4 mb-1 flex-wrap">
-                <h3 className="text-xl font-bold text-slate-50">Requests</h3>
-                <span className="text-xs text-slate-500">
-                    last {capacity || 200} kept in memory
-                </span>
-            </div>
-            <p className="text-xs text-slate-500 mb-4">
-                Cleared when the proxy restarts. The durable record is its log file.
-            </p>
-
-            {requests.length === 0 ? (
-                <div className="py-10 text-center">
-                    <Inbox className="w-8 h-8 text-slate-700 mx-auto mb-2" />
-                    <p className="text-sm text-slate-500">No requests yet.</p>
-                </div>
-            ) : (
-                <div className="max-h-96 overflow-y-auto -mx-2">
-                    <table className="w-full text-sm">
-                        <tbody>
-                            {requests.map((r, i) => (
-                                <tr
-                                    key={`${r.at}-${i}`}
-                                    className="border-b border-slate-800/40 last:border-0 hover:bg-slate-800/30 transition-colors"
-                                >
-                                    <td className="py-2 px-2 font-mono text-xs text-slate-500 whitespace-nowrap align-top">
-                                        {clockOf(r.at)}
-                                    </td>
-                                    <td className="py-2 px-2 font-mono text-xs text-slate-400 whitespace-nowrap align-top">
-                                        {r.method}
-                                    </td>
-                                    <td className="py-2 px-2 font-mono text-slate-200 break-all">
-                                        {r.path}
-                                        {r.error && (
-                                            <div className="text-xs text-red-400 mt-0.5">
-                                                {r.error}
-                                            </div>
-                                        )}
-                                    </td>
-                                    <td
-                                        className={`py-2 px-2 font-mono text-xs text-right whitespace-nowrap align-top ${statusTone(
-                                            r
-                                        )}`}
-                                    >
-                                        {r.status ?? 'failed'}
-                                    </td>
-                                    <td className="py-2 px-2 font-mono text-xs text-slate-500 text-right whitespace-nowrap align-top">
-                                        {r.ms}ms
-                                    </td>
-                                </tr>
-                            ))}
-                        </tbody>
-                    </table>
-                </div>
-            )}
-        </div>
-    )
-}
 
 /** Traffic chart and request log, refreshed together. */
 function TunnelActivity() {
@@ -176,7 +34,7 @@ function TunnelActivity() {
 
     return (
         <div className="space-y-6">
-            <TrafficChart series={d.traffic || []} />
+            <TrafficChart series={d.traffic || []} emptyText="Nothing has crossed the tunnel yet." />
             <RequestLog requests={d.requests || []} capacity={d.capacity} />
         </div>
     )

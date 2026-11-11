@@ -43,6 +43,19 @@ const dashboardServices = {
     saveTunnelConfig: async (fields) =>
         (await api.post("/tunnel/config", fields)).data,
 
+    // --- call history per service (master key) ----------------------------
+    // Every request each backend route was asked, newest first, plus a
+    // per-minute traffic series. route = "/crawler" etc, or omit for all.
+    // In memory on the proxy, so it resets when the proxy restarts.
+    getServiceRequests: async ({ route, limit = 200, errors = false } = {}) => {
+        const params = new URLSearchParams({ limit: String(limit) })
+        if (route) params.set("route", route)
+        if (errors) params.set("errors", "1")
+        return (await api.get(`/services/requests?${params}`)).data
+    },
+    clearServiceRequests: async (route) =>
+        (await api.post("/services/requests/clear", route ? { route } : {})).data,
+
     // --- backend management (master key) ----------------------------------
     addBackend: async ({ route, url }) =>
         (await api.post("/backends/add", { route, url })).data,
