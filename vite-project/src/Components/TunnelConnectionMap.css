@@ -1,0 +1,91 @@
+.tunnel-connection-map .tunnel-flow { grid-template-columns: minmax(0, 1fr) 72px minmax(0, 1fr) 72px minmax(0, 1fr); }
+.tunnel-connection-map .tunnel-flow.connected .tunnel-connector::after { animation: none; }
+.tunnel-connection-map .tunnel-flow.is-flowing .tunnel-connector { background: #38bdf850; }
+.tunnel-connection-map .tunnel-flow.is-flowing .tunnel-connector::after { opacity: 0; }
+.tunnel-connection-map .tunnel-flow.is-flowing .tunnel-node:nth-child(3) { border-color: #38bdf85c; box-shadow: inset 0 0 24px #38bdf806; }
+.tunnel-request-packet { position: absolute; width: 8px; height: 8px; top: 50%; left: 0; border-radius: 50%; transform: translate(-50%, -50%); background: #7dd3fc; box-shadow: 0 0 11px #38bdf8b0, 0 0 2px #e0f2fe; opacity: 0; animation: tunnel-request-first 3.1s linear var(--packet-delay) both; pointer-events: none; }
+.tunnel-request-packet::before { content: ''; position: absolute; right: 5px; top: 2.5px; width: 18px; height: 3px; border-radius: 3px; background: linear-gradient(90deg, transparent, #38bdf888); }
+.tunnel-request-packet.second { animation-name: tunnel-request-second; }
+.tunnel-request-packet.ongoing { animation-iteration-count: infinite; }
+.tunnel-live-strip { display: flex; align-items: center; justify-content: space-between; gap: 24px; margin-top: 24px; padding: 17px 0 0; border-top: 1px solid #263249; }
+.tunnel-live-state { display: flex; align-items: center; gap: 10px; color: #91a3bd; min-width: 0; }
+.tunnel-live-state > div { display: flex; flex-direction: column; gap: 4px; }
+.tunnel-live-state strong { font-size: 11px; font-weight: 550; color: #c9d5e5; }
+.tunnel-live-state span { font-size: 10px; color: #91a3bd; }
+.tunnel-live-strip.active .tunnel-live-state { color: #7dd3fc; }
+.tunnel-live-strip.active .tunnel-live-state strong { color: #bae6fd; }
+.tunnel-live-strip.paused .tunnel-live-state { color: #fbbf24; }
+.tunnel-live-strip dl { display: flex; gap: 32px; }
+.tunnel-live-strip dt { color: #94a3b8; font-size: 10px; }
+.tunnel-live-strip dd { color: #e2e8f0; font-size: 19px; font-weight: 550; margin-top: 3px; }
+.tunnel-live-strip small { display: block; font-size: 9px; font-weight: 400; color: #91a3bd; margin-top: 1px; }
+.tunnel-motion-note { color: #8499b4; font-size: 10px; margin-top: 15px; line-height: 1.7; }
+.tunnel-map-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 14px; margin: -4px 0 18px; }
+.tunnel-map-toolbar > span { font-size: 10px; color: #91a3bd; }
+.tunnel-map-toolbar > div { display: flex; gap: 8px; flex-wrap: wrap; }
+.tunnel-map-toolbar .calls-button { font-size: 10px; padding: 7px 9px; }
+.tunnel-connection-map button.tunnel-node { text-align: left; cursor: pointer; height: 100%; }
+.tunnel-connection-map button.tunnel-node:hover { background: #17243a; border-color: #64748b; }
+.tunnel-connection-map button.tunnel-node[aria-expanded='true'] { border-color: #a78bfa; background: #a78bfa09; }
+.tunnel-node-details { padding: 17px; background: #0b1525; border: 1px solid #33425c; border-radius: 7px; margin-top: 15px; }
+.tunnel-node-details > p { color: #9bacc4; font-size: 11px; max-width: 85ch; line-height: 1.7; margin-top: 10px; }
+.tunnel-node-details dl { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 15px 24px; margin-top: 18px; }
+.tunnel-node-details dt { font-size: 10px; color: #91a3bd; margin-bottom: 5px; }
+.tunnel-node-details dd { display: flex; align-items: center; justify-content: space-between; gap: 12px; color: #cbd5e1; font-size: 12px; overflow-wrap: anywhere; }
+.tunnel-node-details dd > span { min-width: 0; }
+.tunnel-node-details .tunnel-detail-stale { color: #fbbf24; }
+.tunnel-monitor-grid { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(230px, 1fr); gap: 24px; border-top: 1px solid #263249; margin-top: 20px; padding-top: 22px; }
+.tunnel-monitor-heading { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.tunnel-monitor-heading h3 { display: flex; align-items: center; gap: 8px; font-size: 12px; font-weight: 550; color: #d2ddec; }
+.tunnel-monitor-heading h3 svg { color: #91a3bd; }
+.tunnel-monitor-heading > span { color: #91a3bd; font-size: 10px; white-space: nowrap; }
+.tunnel-trend { min-width: 0; }
+.tunnel-trend .calls-segment button { font-size: 10px; padding: 5px 8px; }
+.tunnel-trend-controls { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 16px; }
+.tunnel-trend-readout { min-height: 31px; display: flex; justify-content: space-between; align-items: center; gap: 10px; color: #91a3bd; font-size: 10px; padding-top: 8px; }
+.tunnel-trend-readout strong { font-weight: 550; color: #cbd5e1; }
+.tunnel-trend-plot { position: relative; height: 128px; cursor: crosshair; }
+.tunnel-trend-plot > svg { width: 100%; height: 100%; overflow: visible; }
+.tunnel-trend-point { width: 7px; height: 7px; border-radius: 50%; border: 1px solid #0f172a; position: absolute; transform: translate(-50%, -50%); pointer-events: none; }
+.tunnel-trend-empty { position: absolute; inset: 0; display: grid; place-items: center; font-size: 11px; color: #91a3bd; padding: 15px; text-align: center; pointer-events: none; }
+.tunnel-trend-axis { display: flex; align-items: center; justify-content: space-between; font-size: 9px; color: #91a3bd; margin-top: 2px; }
+.tunnel-trend-stats { display: flex; justify-content: space-between; gap: 12px; border-top: 1px solid #263249; margin-top: 17px; padding-top: 13px; }
+.tunnel-trend-stats dt { font-size: 9px; color: #91a3bd; }
+.tunnel-trend-stats dd { font-size: 18px; font-weight: 550; margin-top: 3px; color: #dce6f4; }
+.tunnel-trend-stats small { font-size: 9px; font-weight: 400; margin-left: 5px; color: #91a3bd; }
+.tunnel-monitor-note { font-size: 10px; color: #91a3bd; line-height: 1.7; margin-top: 14px; }
+.tunnel-events { border-left: 1px solid #263249; padding-left: 24px; min-width: 0; }
+.tunnel-events ol { list-style: none; margin-top: 18px; max-height: 245px; overflow-y: auto; scrollbar-width: thin; scrollbar-color: #334155 transparent; }
+.tunnel-events li { display: flex; gap: 10px; padding-bottom: 17px; position: relative; }
+.tunnel-events li > i { width: 6px; height: 6px; border-radius: 50%; background: #8193ae; flex-shrink: 0; margin-top: 5px; }
+.tunnel-events li:not(:last-child)::after { content: ''; position: absolute; width: 1px; background: #263249; left: 2.5px; top: 15px; bottom: 4px; }
+.tunnel-events li.green > i { background: #34d399; }
+.tunnel-events li.amber > i { background: #fbbf24; }
+.tunnel-events li p { font-size: 11px; color: #c2cfe0; line-height: 1.6; }
+.tunnel-events time { color: #91a3bd; font-size: 10px; display: block; margin-top: 3px; }
+.tunnel-page .calls-explorer { scroll-margin-top: 16px; }
+@keyframes tunnel-request-first { 0%, 4% { opacity: 0; left: 0; } 8% { opacity: 1; left: 0; } 40% { opacity: 1; left: 100%; } 44%, 100% { opacity: 0; left: 100%; } }
+@keyframes tunnel-request-second { 0%, 45% { opacity: 0; left: 0; } 49% { opacity: 1; left: 0; } 81% { opacity: 1; left: 100%; } 85%, 100% { opacity: 0; left: 100%; } }
+@media (max-width: 1100px) {
+    .tunnel-connection-map .tunnel-flow { grid-template-columns: minmax(0, 1fr) 42px minmax(0, 1fr) 42px minmax(0, 1fr); }
+    .tunnel-live-strip { align-items: flex-start; flex-direction: column; gap: 18px; }
+    .tunnel-live-strip dl { width: 100%; justify-content: space-between; gap: 15px; }
+    .tunnel-monitor-grid { grid-template-columns: 1fr; gap: 22px; }
+    .tunnel-events { border-left: 0; border-top: 1px solid #263249; padding: 20px 0 0; }
+}
+@media (max-width: 700px) {
+    .tunnel-connection-map .tunnel-flow { grid-template-columns: 1fr; }
+    .tunnel-connection-map .tunnel-connector { height: 42px; }
+    .tunnel-request-packet { left: 50%; top: 0; animation-name: tunnel-request-down-first; }
+    .tunnel-request-packet.second { animation-name: tunnel-request-down-second; }
+    .tunnel-request-packet::before { right: auto; left: 2.5px; top: -14px; width: 3px; height: 18px; background: linear-gradient(180deg, transparent, #38bdf888); }
+    .tunnel-live-strip { margin-top: 18px; }
+    .tunnel-map-toolbar { align-items: flex-start; flex-direction: column; gap: 10px; }
+    .tunnel-node-details dl { grid-template-columns: 1fr; }
+    .tunnel-trend-stats small { display: block; margin-left: 0; }
+    .tunnel-monitor-heading h3 { font-size: 11px; }
+    .tunnel-monitor-grid { gap: 19px; }
+}
+@keyframes tunnel-request-down-first { 0%, 4% { opacity: 0; top: 0; } 8% { opacity: 1; top: 0; } 40% { opacity: 1; top: 100%; } 44%, 100% { opacity: 0; top: 100%; } }
+@keyframes tunnel-request-down-second { 0%, 45% { opacity: 0; top: 0; } 49% { opacity: 1; top: 0; } 81% { opacity: 1; top: 100%; } 85%, 100% { opacity: 0; top: 100%; } }
+@media (prefers-reduced-motion: reduce) { .tunnel-request-packet { display: none; animation: none !important; } }

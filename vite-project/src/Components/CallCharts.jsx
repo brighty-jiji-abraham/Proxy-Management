@@ -1,6 +1,6 @@
 import { useId, useState } from 'react'
 import { Activity, ArrowUpRight, Clock3, Gauge, Radio, Server, TrendingUp } from 'lucide-react'
-import { duration, number, timeLabel } from '../utils/callAnalytics'
+import { duration, latencySeries, number, timeLabel } from '../utils/callAnalytics'
 
 export function PanelHeading({ icon: Icon, title, subtitle, children }) {
     return (
@@ -37,19 +37,29 @@ export function TrafficPanel({ analytics }) {
     const gradientId = useId()
     const { series, total, errors, rpm, peak } = analytics
     const latency = metric === 'latency'
-    const values = series.map((b) => (latency ? b.avg_ms : b.count))
+    const { points, segments } = latencySeries(series)
+    const values = latency ? points.map((point) => point.ms) : series.map((b) => b.count)
     const max = Math.max(4, Math.ceil(Math.max(0, ...values) / 4) * 4)
-    const x = (i) => 6 + (i / Math.max(1, series.length - 1)) * 888
+    const x = (i) => (series.length > 1 ? 6 + (i / (series.length - 1)) * 888 : 450)
     const y = (value) => 198 - (value / max) * 184
     const line = series.map((b, i) => `${i === 0 ? 'M' : 'L'} ${x(i)} ${y(b.count)}`).join(' ')
-    // A minute without requests has no average latency. Leave a gap instead of
-    // implying that the service responded in zero milliseconds.
-    const latencyLine = series
-        .map((b, i) => (b.count ? `${!i || !series[i - 1].count ? 'M' : 'L'} ${x(i)} ${y(b.avg_ms)}` : ''))
+    const segmentPath = ({ from, to }) => `M ${x(from.index)} ${y(from.ms)} L ${x(to.index)} ${y(to.ms)}`
+    const latencyLine = segments
+        .filter((segment) => !segment.gap)
+        .map(segmentPath)
         .join(' ')
+    const gapLine = segments
+        .filter((segment) => segment.gap)
+        .map(segmentPath)
+        .join(' ')
+    const position = (index, value) => ({
+        left: `${(x(index) / 900) * 100}%`,
+        top: `${(y(value) / 212) * 100}%`,
+    })
     const errorLine = series.map((b, i) => `${i ? 'L' : 'M'} ${x(i)} ${y(b.errors)}`).join(' ')
     const selectedIndex = active == null ? null : Math.min(active, series.length - 1)
     const selected = selectedIndex == null ? null : series[selectedIndex]
+    const selectedPoint = points.find((point) => point.index === selectedIndex)
     const labels = [
         ...new Set([
             0,
@@ -57,7 +67,7 @@ export function TrafficPanel({ analytics }) {
             Math.floor(((series.length - 1) * 2) / 3),
             series.length - 1,
         ]),
-    ].filter((i) => i >= 0)
+    ].filter((i) => i >= 0 && i < series.length)
 
     return (
         <section className="calls-panel calls-traffic">
@@ -86,6 +96,13 @@ export function TrafficPanel({ analytics }) {
                         Failed requests
                     </span>
                 )}
+                {latency && gapLine && (
+                    <span className="calls-chart-gap-key">
+                        <i />
+                        Dashed spans: no recorded samples
+                    </span>
+                )}
+                {latency && points.length === 1 && <span>One recorded minute</span>}
                 <span className="calls-chart-unit">{latency ? 'Milliseconds' : 'Requests / min'}</span>
             </div>
             <div className="calls-plot-wrap">
@@ -107,14 +124,17 @@ export function TrafficPanel({ analytics }) {
                                 Math.min(
                                     series.length - 1,
                                     Math.round(
-                                        ((event.clientX - bounds.left) / bounds.width) * (series.length - 1)
+                                        ((((event.clientX - bounds.left) / bounds.width) * 900 - 6) / 888) *
+                                            (series.length - 1)
                                     )
                                 )
                             )
                         )
                     }}
                     onPointerLeave={() => setActive(null)}
-                    onFocus={() => setActive(series.length - 1)}
+                    onFocus={() =>
+                        setActive(latency ? (points.at(-1)?.index ?? series.length - 1) : series.length - 1)
+                    }
                     onBlur={() => setActive(null)}
                     onKeyDown={(event) => {
                         if (!['ArrowLeft', 'ArrowRight', 'Home', 'End', 'Escape'].includes(event.key)) return
@@ -140,7 +160,7 @@ export function TrafficPanel({ analytics }) {
                         role="img"
                         aria-label={
                             latency
-                                ? `${duration(analytics.average)} weighted average response time across ${number(total)} calls.`
+                                ? `${duration(analytics.average)} weighted average response time across ${number(total)} calls. ${points.length} recorded minutes.${gapLine ? ' Dashed spans connect recorded samples across minutes with no latency data.' : ''}`
                                 : `${number(total)} requests, ${number(errors)} failed. Peak ${peak?.count || 0} requests per minute.`
                         }
                     >
@@ -168,30 +188,30 @@ export function TrafficPanel({ analytics }) {
                                         fill={`url(#${gradientId})`}
                                     />
                                 )}
-                                <path
-                                    key={metric}
-                                    className="calls-chart-line"
-                                    d={latency ? latencyLine : line}
-                                    fill="none"
-                                    stroke={latency ? '#38bdf8' : '#a78bfa'}
-                                    strokeWidth="2.5"
-                                    strokeLinejoin="round"
-                                    vectorEffect="non-scaling-stroke"
-                                    pathLength="1"
-                                />
-                                {latency &&
-                                    series.map(
-                                        (b, i) =>
-                                            b.count > 0 && (
-                                                <circle
-                                                    key={b.minute}
-                                                    cx={x(i)}
-                                                    cy={y(b.avg_ms)}
-                                                    r="2.5"
-                                                    fill="#38bdf8"
-                                                />
-                                            )
-                                    )}
+                                {(!latency || latencyLine) && (
+                                    <path
+                                        key={metric}
+                                        className="calls-chart-line"
+                                        d={latency ? latencyLine : line}
+                                        fill="none"
+                                        stroke={latency ? '#38bdf8' : '#a78bfa'}
+                                        strokeWidth="2.5"
+                                        strokeLinejoin="round"
+                                        vectorEffect="non-scaling-stroke"
+                                        pathLength="1"
+                                    />
+                                )}
+                                {latency && gapLine && (
+                                    <path
+                                        className="calls-latency-gap"
+                                        d={gapLine}
+                                        fill="none"
+                                        stroke="#38bdf8"
+                                        strokeWidth="2"
+                                        strokeDasharray="5 5"
+                                        vectorEffect="non-scaling-stroke"
+                                    />
+                                )}
                                 {!latency && errors > 0 && (
                                     <path
                                         d={errorLine}
@@ -213,24 +233,37 @@ export function TrafficPanel({ analytics }) {
                                     stroke="#64748b"
                                     strokeDasharray="4 5"
                                 />
-                                {(!latency || selected.count > 0) && (
-                                    <circle
-                                        cx={x(selectedIndex)}
-                                        cy={y(values[selectedIndex])}
-                                        r="4"
-                                        fill={latency ? '#38bdf8' : '#a78bfa'}
-                                        stroke="#0f172a"
-                                        strokeWidth="2"
-                                    />
-                                )}
                             </g>
                         )}
                     </svg>
-                    {!total && (
+                    {latency &&
+                        points.map((point) => (
+                            <span
+                                key={point.minute}
+                                className={`calls-latency-point ${points.length === 1 ? 'is-single' : ''}`}
+                                style={position(point.index, point.ms)}
+                                aria-hidden="true"
+                            />
+                        ))}
+                    {selected && (!latency || selectedPoint) && (
+                        <span
+                            className="calls-chart-cursor-point"
+                            style={{
+                                ...position(selectedIndex, latency ? selectedPoint.ms : selected.count),
+                                background: latency ? '#38bdf8' : '#a78bfa',
+                            }}
+                            aria-hidden="true"
+                        />
+                    )}
+                    {(!total || (latency && !points.length)) && (
                         <div className="calls-chart-empty">
                             <Radio size={24} />
-                            <strong>Waiting for traffic</strong>
-                            <span>Requests will appear here as your services receive calls.</span>
+                            <strong>{total ? 'No latency data' : 'Waiting for traffic'}</strong>
+                            <span>
+                                {total
+                                    ? 'Response times will appear when a recorded timing is available.'
+                                    : 'Requests will appear here as your services receive calls.'}
+                            </span>
                         </div>
                     )}
                     {selected && (
@@ -238,14 +271,14 @@ export function TrafficPanel({ analytics }) {
                             role="status"
                             aria-live="polite"
                             aria-atomic="true"
-                            className={`calls-chart-tooltip ${selectedIndex > series.length / 2 ? 'is-right' : ''}`}
-                            style={{ left: `${(selectedIndex / Math.max(1, series.length - 1)) * 100}%` }}
+                            className={`calls-chart-tooltip ${x(selectedIndex) >= 450 ? 'is-right' : ''}`}
+                            style={{ left: `${(x(selectedIndex) / 900) * 100}%` }}
                         >
                             <strong>{timeLabel(selected.minute)}</strong>
                             <span>{number(selected.count)} requests</span>
                             <span>
                                 {selected.errors} failed ·{' '}
-                                {selected.count ? duration(selected.avg_ms) : 'No latency data'}
+                                {selectedPoint ? duration(selectedPoint.ms) : 'No latency data'}
                             </span>
                         </div>
                     )}

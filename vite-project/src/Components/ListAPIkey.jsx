@@ -1,180 +1,499 @@
-import React, { useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { Link, useNavigate, useOutletContext } from 'react-router-dom'
 import {
-    Key, Trash2, RefreshCw, Copy, Check, Eye, EyeOff,
-    AlertCircle, ShieldCheck,
+    Activity,
+    Check,
+    ChevronDown,
+    ChevronLeft,
+    ChevronRight,
+    Clock3,
+    Eye,
+    KeyRound,
+    Plus,
+    Search,
+    ShieldCheck,
+    Trash2,
+    UserRound,
+    UsersRound,
+    X,
 } from 'lucide-react'
 import dashboardServices from '../services/dashboard.service'
-import { getApiKey } from '../api/api'
+import { getApiKey, setApiKey } from '../api/api'
+import { PanelHeading } from './CallCharts'
+import {
+    ServiceBars,
+    ServiceEmpty,
+    ServiceFooter,
+    ServiceHeader,
+    ServiceMetric,
+    ServiceState,
+} from './ServiceUI'
+import { KeyCredential, KeyRole, KeyStorageNote } from './KeyUI'
+import { filterKeys, keyDate, summarizeKeys } from '../utils/keyAnalytics'
+import { pollingOptions } from '../utils/serviceAnalytics'
+import { number } from '../utils/callAnalytics'
 
-const when = (ts) =>
-    ts ? new Date(ts * 1000).toLocaleString() : 'never'
+const PAGE_SIZE = 10
+const usageLabels = {
+    recent: 'Last 24 hours',
+    week: '1–7 days ago',
+    older: 'Over 7 days ago',
+    never: 'Never used',
+    unknown: 'Not reported',
+}
 
-/**
- * Every key the proxy currently holds, from GET /admin/api-keys.
- *
- * The endpoint returns keys in plaintext, so they are masked by default here -
- * a management screen left open on a shared desk should not leak credentials.
- */
 function ListAPIkey() {
     const queryClient = useQueryClient()
-    const [revealed, setRevealed] = useState({})
-    const [copiedKey, setCopiedKey] = useState(null)
-    const [failure, setFailure] = useState('')
-
+    const navigate = useNavigate()
+    const { onSignOut } = useOutletContext() || {}
+    const [paused, setPaused] = useState(false)
+    const [filters, setFilters] = useState({ search: '', role: 'all', usage: 'all', sort: 'newest', page: 0 })
+    const [removing, setRemoving] = useState(null)
+    const [message, setMessage] = useState('')
+    const inventoryRef = useRef(null)
     const keys = useQuery({
         queryKey: ['api-keys'],
         queryFn: dashboardServices.listApiKeys,
-        refetchInterval: 30000,
+        ...pollingOptions(paused, 30000),
     })
-
+    const sources = [{ ...keys, label: 'Key registry' }]
+    const summary = useMemo(
+        () => summarizeKeys(keys.data, keys.dataUpdatedAt / 1000),
+        [keys.data, keys.dataUpdatedAt]
+    )
+    const filtered = useMemo(() => filterKeys(summary.rows, filters), [summary.rows, filters])
+    const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))
+    const page = Math.min(filters.page, pageCount - 1)
+    const shown = filtered.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE)
+    const activeKey = getApiKey()
+    const update = (changes) => setFilters((previous) => ({ ...previous, page: 0, ...changes }))
+    const resetFilters = () => update({ search: '', role: 'all', usage: 'all' })
+    const inspectUsage = (usage) => {
+        update({ usage, role: 'all', search: '' })
+        inventoryRef.current?.scrollIntoView({
+            block: 'start',
+            behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth',
+        })
+    }
     const revoke = useMutation({
         mutationFn: dashboardServices.revokeApiKey,
-        onSuccess: () => {
-            setFailure('')
+        onSuccess: async (_, value) => {
+            if (value === activeKey) {
+                setApiKey('')
+                queryClient.clear()
+                onSignOut?.()
+                navigate('/login', { replace: true })
+                return
+            }
+            await queryClient.cancelQueries({ queryKey: ['api-keys'] })
+            queryClient.setQueryData(['api-keys'], (previous) =>
+                previous
+                    ? { ...previous, api_keys: previous.api_keys.filter((row) => row.key !== value) }
+                    : previous
+            )
+            setMessage('Key revoked. This credential no longer grants access to the proxy.')
+            setRemoving(null)
             queryClient.invalidateQueries({ queryKey: ['api-keys'] })
         },
-        onError: (err) =>
-            setFailure(err?.friendlyMessage || 'Could not revoke that key.'),
     })
-
-    const copy = async (value) => {
-        try {
-            await navigator.clipboard.writeText(value)
-            setCopiedKey(value)
-            setTimeout(() => setCopiedKey(null), 2000)
-        } catch {
-            setFailure('Clipboard blocked by the browser.')
-        }
-    }
-
-    const rows = keys.data?.api_keys || []
-    const activeKey = getApiKey()
-
     return (
-        <div className="p-6 space-y-6">
-            <div className="flex items-start justify-between gap-4 flex-wrap">
-                <div>
-                    <h1 className="text-3xl font-black text-slate-50 mb-1">Key Vault</h1>
-                    <p className="text-violet-300/85 font-semibold">
-                        {rows.length} key{rows.length === 1 ? '' : 's'} held by the proxy
-                    </p>
+        <div className="calls-page service-page key-page key-vault-page">
+            <ServiceHeader
+                icon={Eye}
+                title="Key Vault"
+                description="See who has access, inspect credentials, and manage your registered keys."
+                sources={sources}
+                paused={paused}
+                onPause={() => setPaused((value) => !value)}
+                interval="every 30 seconds"
+            />
+            <div className="service-content">
+                <div className="calls-metrics">
+                    <ServiceMetric
+                        icon={KeyRound}
+                        label="Registered keys"
+                        value={keys.data ? number(summary.total) : null}
+                        note="Keys held by this proxy process"
+                    />
+                    <ServiceMetric
+                        icon={UserRound}
+                        label="Client keys"
+                        value={keys.data ? number(summary.clients) : null}
+                        note={
+                            keys.data
+                                ? summary.admins + ' administrator credentials'
+                                : 'Waiting for registry data'
+                        }
+                        color="cyan"
+                    />
+                    <ServiceMetric
+                        icon={Activity}
+                        label="Used in 24 hours"
+                        value={keys.data ? number(summary.recent) : null}
+                        note="Based on each key’s latest use"
+                        color="green"
+                    />
+                    <ServiceMetric
+                        icon={Clock3}
+                        label="Never used"
+                        value={keys.data ? number(summary.never) : null}
+                        note="No authentication recorded yet"
+                        color="amber"
+                    />
                 </div>
-                <button
-                    onClick={() => keys.refetch()}
-                    className="flex items-center gap-2 px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 transition"
-                >
-                    <RefreshCw className={`w-4 h-4 ${keys.isFetching ? 'animate-spin' : ''}`} />
-                    Refresh
-                </button>
-            </div>
-
-            {(failure || keys.isError) && (
-                <div className="flex items-start gap-2 p-4 rounded-2xl bg-red-500/10 border border-red-500/30">
-                    <AlertCircle className="w-5 h-5 text-red-400 mt-0.5 shrink-0" />
-                    <p className="text-sm text-red-300">
-                        {failure || keys.error?.friendlyMessage ||
-                         'Could not load keys. This endpoint needs the master key.'}
-                    </p>
+                {message && (
+                    <div className="service-feedback success" role="status">
+                        <Check size={16} />
+                        <span>{message}</span>
+                    </div>
+                )}
+                <div className="service-grid">
+                    <section className="calls-panel">
+                        <PanelHeading
+                            icon={Activity}
+                            title="Last recorded use"
+                            subtitle="Select a group to inspect those credentials."
+                        />
+                        <ServiceState query={keys} title="Key activity">
+                            {summary.total ? (
+                                <>
+                                    <div className="key-usage">
+                                        {summary.usage
+                                            .filter((bucket) => bucket.key !== 'unknown' || bucket.count)
+                                            .map((bucket) => (
+                                                <button
+                                                    key={bucket.key}
+                                                    onClick={() => inspectUsage(bucket.key)}
+                                                    aria-label={'Show keys: ' + bucket.label}
+                                                >
+                                                    <span>
+                                                        <i style={{ background: bucket.color }} />
+                                                        {bucket.label}
+                                                    </span>
+                                                    <span className="key-usage-track" aria-hidden="true">
+                                                        <i
+                                                            style={{
+                                                                width:
+                                                                    (bucket.count / summary.total) * 100 +
+                                                                    '%',
+                                                                background: bucket.color,
+                                                            }}
+                                                        />
+                                                    </span>
+                                                    <strong>{number(bucket.count)}</strong>
+                                                </button>
+                                            ))}
+                                    </div>
+                                    <p className="service-panel-note">
+                                        One latest-use timestamp per key. Includes authentication from this
+                                        interface; this is not request volume.
+                                    </p>
+                                </>
+                            ) : (
+                                <ServiceEmpty
+                                    icon={Activity}
+                                    title="No key activity yet"
+                                    description="Usage groups appear when keys are registered."
+                                />
+                            )}
+                        </ServiceState>
+                    </section>
+                    <section className="calls-panel">
+                        <PanelHeading
+                            icon={UsersRound}
+                            title="Keys by owner"
+                            subtitle="The five owners with the most registered credentials."
+                        />
+                        <ServiceState query={keys} title="Key ownership">
+                            <ServiceBars
+                                label="Keys per owner"
+                                emptyText="No registered owners"
+                                items={summary.owners
+                                    .slice(0, 5)
+                                    .map(([owner, count]) => ({
+                                        key: owner,
+                                        label: owner,
+                                        value: count,
+                                        display: number(count) + (count === 1 ? ' key' : ' keys'),
+                                        color: 'var(--calls-violet)',
+                                    }))}
+                            />
+                        </ServiceState>
+                        {summary.total > 0 && (
+                            <p className="service-panel-note">
+                                {summary.owners.length} distinct owners across {summary.total} registered
+                                keys.
+                            </p>
+                        )}
+                    </section>
                 </div>
-            )}
-
-            {keys.isLoading ? (
-                <div className="p-12 text-center text-slate-500">Loading keys...</div>
-            ) : rows.length === 0 ? (
-                <div className="p-12 text-center rounded-2xl bg-slate-900/60 border border-slate-800/70">
-                    <Key className="w-10 h-10 text-slate-700 mx-auto mb-3" />
-                    <p className="text-slate-400 font-semibold">No keys yet</p>
-                    <p className="text-sm text-slate-600 mt-1">Forge one from Key Forge.</p>
-                </div>
-            ) : (
-                <div className="space-y-3">
-                    {rows.map((row) => {
-                        const value = row.key || ''
-                        const isCurrent = value && value === activeKey
-                        const isMaster = row.user_id === 'master'
-                        const show = revealed[value]
-
-                        return (
-                            <div
-                                key={value || row.user_id}
-                                className="p-5 rounded-2xl bg-slate-900/60 border border-slate-800/70 hover:border-slate-700/70 transition"
+                <section className="calls-panel key-library" ref={inventoryRef} aria-label="Key inventory">
+                    <PanelHeading
+                        icon={KeyRound}
+                        title="Registered credentials"
+                        subtitle="Find a key by its label or owner. Expand a row to reveal or manage it."
+                    >
+                        <Link to="/generate-key" className="calls-button service-primary-button">
+                            <Plus size={15} />
+                            Create key
+                        </Link>
+                    </PanelHeading>
+                    <div className="service-toolbar">
+                        <label className="calls-search">
+                            <Search size={16} />
+                            <input
+                                type="search"
+                                aria-label="Search keys"
+                                placeholder="Search labels and owners…"
+                                value={filters.search}
+                                onChange={(event) => update({ search: event.target.value })}
+                            />
+                            {filters.search && (
+                                <button aria-label="Clear key search" onClick={() => update({ search: '' })}>
+                                    <X size={14} />
+                                </button>
+                            )}
+                        </label>
+                        <div className="calls-segment" aria-label="Key access filter">
+                            {[
+                                ['all', 'All keys'],
+                                ['client', 'Client'],
+                                ['admin', 'Admin'],
+                            ].map(([role, label]) => (
+                                <button
+                                    key={role}
+                                    aria-pressed={filters.role === role}
+                                    onClick={() => update({ role })}
+                                >
+                                    {label}
+                                </button>
+                            ))}
+                        </div>
+                        <select
+                            className="service-select"
+                            aria-label="Filter keys by last use"
+                            value={filters.usage}
+                            onChange={(event) => update({ usage: event.target.value })}
+                        >
+                            <option value="all">Any last use</option>
+                            {summary.usage.map((bucket) => (
+                                <option key={bucket.key} value={bucket.key}>
+                                    {bucket.label}
+                                </option>
+                            ))}
+                        </select>
+                        <select
+                            className="service-select"
+                            aria-label="Sort keys"
+                            value={filters.sort}
+                            onChange={(event) => update({ sort: event.target.value })}
+                        >
+                            <option value="newest">Newest first</option>
+                            <option value="used">Recently used</option>
+                            <option value="name">Label A–Z</option>
+                        </select>
+                    </div>
+                    <ServiceState query={keys} title="Key registry">
+                        {!shown.length ? (
+                            <ServiceEmpty
+                                icon={KeyRound}
+                                title={summary.total ? 'No matching keys' : 'No keys registered'}
+                                description={
+                                    summary.total
+                                        ? 'Try another label, owner, or usage filter.'
+                                        : 'Create a key in Key Forge to give a client access to your proxy.'
+                                }
                             >
-                                <div className="flex items-start justify-between gap-4 flex-wrap">
-                                    <div className="min-w-0 flex-1">
-                                        <div className="flex items-center gap-2 flex-wrap mb-2">
-                                            <span className="font-bold text-slate-100">
-                                                {row.name || 'Unnamed key'}
-                                            </span>
-                                            <span className="px-2 py-0.5 rounded-lg text-xs font-mono bg-slate-800 text-slate-400">
-                                                {row.user_id}
-                                            </span>
-                                            {isMaster && (
-                                                <span className="flex items-center gap-1 px-2 py-0.5 rounded-lg text-xs font-semibold bg-violet-500/15 text-violet-300 border border-violet-500/30">
-                                                    <ShieldCheck className="w-3 h-3" /> master
-                                                </span>
-                                            )}
-                                            {isCurrent && (
-                                                <span className="px-2 py-0.5 rounded-lg text-xs font-semibold bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">
-                                                    this session
-                                                </span>
-                                            )}
-                                        </div>
-
-                                        <div className="flex items-center gap-2">
-                                            <code className="px-3 py-1.5 rounded-lg bg-slate-950/70 border border-slate-800 text-slate-300 font-mono text-xs break-all">
-                                                {show ? value : '•'.repeat(Math.min(value.length, 32))}
-                                            </code>
-                                            <button
-                                                onClick={() =>
-                                                    setRevealed((r) => ({ ...r, [value]: !r[value] }))
-                                                }
-                                                className="p-1.5 rounded-lg text-slate-500 hover:text-slate-300 transition shrink-0"
-                                                aria-label={show ? 'Hide key' : 'Reveal key'}
-                                            >
-                                                {show ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                                            </button>
-                                            <button
-                                                onClick={() => copy(value)}
-                                                className="p-1.5 rounded-lg text-slate-500 hover:text-slate-300 transition shrink-0"
-                                                aria-label="Copy key"
-                                            >
-                                                {copiedKey === value ? (
-                                                    <Check className="w-4 h-4 text-emerald-400" />
-                                                ) : (
-                                                    <Copy className="w-4 h-4" />
+                                {summary.total ? (
+                                    <button className="calls-button" onClick={resetFilters}>
+                                        Reset filters
+                                    </button>
+                                ) : (
+                                    <Link className="calls-button service-primary-button" to="/generate-key">
+                                        <Plus size={15} />
+                                        Open Key Forge
+                                    </Link>
+                                )}
+                            </ServiceEmpty>
+                        ) : (
+                            shown.map((row) => (
+                                <details className="key-row" key={row.key}>
+                                    <summary>
+                                        <span className="key-row-icon">
+                                            {row.isAdmin ? <ShieldCheck size={17} /> : <KeyRound size={17} />}
+                                        </span>
+                                        <div className="key-row-identity">
+                                            <div className="key-row-name">
+                                                <strong>{row.name}</strong>
+                                                {row.key === activeKey && (
+                                                    <span className="key-session-badge">This session</span>
                                                 )}
-                                            </button>
+                                            </div>
+                                            <span>{row.user_id}</span>
                                         </div>
-
-                                        <div className="flex gap-4 mt-3 text-xs text-slate-500">
-                                            <span>created {when(row.created_at)}</span>
-                                            <span>last used {when(row.last_used)}</span>
+                                        <KeyRole admin={row.isAdmin} />
+                                        <div className="key-last-used">
+                                            <span>Last used</span>
+                                            <strong
+                                                title={keyDate(
+                                                    row.last_used,
+                                                    row.usage === 'never' ? 'Never used' : 'Not reported'
+                                                )}
+                                            >
+                                                {usageLabels[row.usage]}
+                                            </strong>
+                                        </div>
+                                        <ChevronDown size={16} className="service-chevron" />
+                                    </summary>
+                                    <div className="service-details key-row-details">
+                                        <KeyCredential value={row.key} label={row.name} />
+                                        <div className="service-detail-grid">
+                                            <div>
+                                                <span>Owner</span>
+                                                <strong>{row.user_id}</strong>
+                                            </div>
+                                            <div>
+                                                <span>Access level</span>
+                                                <strong>{row.isAdmin ? 'Administrator' : 'Client'}</strong>
+                                            </div>
+                                            <div>
+                                                <span>Created</span>
+                                                <strong>{keyDate(row.created_at)}</strong>
+                                            </div>
+                                            <div>
+                                                <span>Last used</span>
+                                                <strong>
+                                                    {keyDate(
+                                                        row.last_used,
+                                                        row.usage === 'never' ? 'Never used' : 'Not reported'
+                                                    )}
+                                                </strong>
+                                            </div>
+                                        </div>
+                                        <div className="service-detail-actions">
+                                            <span>
+                                                {row.key === activeKey
+                                                    ? 'This credential is being used by your current session.'
+                                                    : 'Revocation removes access immediately.'}
+                                            </span>
+                                            <button
+                                                className="calls-button calls-danger-button"
+                                                onClick={() => {
+                                                    revoke.reset()
+                                                    setRemoving(row)
+                                                }}
+                                                disabled={revoke.isPending}
+                                            >
+                                                <Trash2 size={14} />
+                                                Revoke key
+                                            </button>
                                         </div>
                                     </div>
-
-                                    <button
-                                        onClick={() => {
-                                            // Revoking the key you are signed in with would lock
-                                            // you out of every write endpoint immediately.
-                                            const warning = isCurrent
-                                                ? 'This is the key this session is using. Revoking it signs you out. Continue?'
-                                                : `Revoke "${row.name || row.user_id}"?`
-                                            if (window.confirm(warning)) revoke.mutate(value)
-                                        }}
-                                        disabled={revoke.isPending}
-                                        className="flex items-center gap-2 px-3 py-2 rounded-xl bg-red-500/10 hover:bg-red-500/20 border border-red-500/30 text-red-300 text-sm font-semibold transition disabled:opacity-50 shrink-0"
-                                    >
-                                        <Trash2 className="w-4 h-4" />
-                                        Revoke
-                                    </button>
-                                </div>
+                                </details>
+                            ))
+                        )}
+                    </ServiceState>
+                    {keys.data && (
+                        <div className="calls-table-footer">
+                            <span>
+                                {filtered.length
+                                    ? number(page * PAGE_SIZE + 1) +
+                                      '–' +
+                                      number(Math.min((page + 1) * PAGE_SIZE, filtered.length)) +
+                                      ' of ' +
+                                      number(filtered.length) +
+                                      ' keys'
+                                    : '0 keys'}
+                                <small>Only currently registered credentials are listed.</small>
+                            </span>
+                            <div>
+                                <button
+                                    className="calls-icon-button"
+                                    aria-label="Previous keys page"
+                                    disabled={!page}
+                                    onClick={() => update({ page: page - 1 })}
+                                >
+                                    <ChevronLeft size={16} />
+                                </button>
+                                <span>
+                                    {page + 1} / {pageCount}
+                                </span>
+                                <button
+                                    className="calls-icon-button"
+                                    aria-label="Next keys page"
+                                    disabled={page + 1 >= pageCount}
+                                    onClick={() => update({ page: page + 1 })}
+                                >
+                                    <ChevronRight size={16} />
+                                </button>
                             </div>
-                        )
-                    })}
-                </div>
+                        </div>
+                    )}
+                </section>
+                <KeyStorageNote />
+                <ServiceFooter sources={sources}>
+                    The vault refreshes every 30 seconds. Usage groups are calculated at the last refresh, so
+                    paused snapshots remain consistent. Revoked keys are removed from the registry.
+                </ServiceFooter>
+            </div>
+            {removing && (
+                <RevokeDialog
+                    row={removing}
+                    current={removing.key === activeKey}
+                    pending={revoke.isPending}
+                    error={revoke.error}
+                    onCancel={() => setRemoving(null)}
+                    onConfirm={() => revoke.mutate(removing.key)}
+                />
             )}
         </div>
+    )
+}
+
+function RevokeDialog({ row, current, pending, error, onCancel, onConfirm }) {
+    const ref = useRef(null)
+    useEffect(() => {
+        const dialog = ref.current
+        dialog.showModal()
+        return () => dialog.close()
+    }, [])
+    return (
+        <dialog
+            className="calls-dialog"
+            ref={ref}
+            aria-labelledby="revoke-key-title"
+            aria-describedby="revoke-key-description"
+            onCancel={(event) => {
+                event.preventDefault()
+                if (!pending) onCancel()
+            }}
+        >
+            <span className="calls-dialog-icon">
+                <Trash2 size={22} />
+            </span>
+            <h2 id="revoke-key-title">Revoke this key?</h2>
+            <p id="revoke-key-description">
+                “{row.name}” for <span className="key-dialog-owner">{row.user_id}</span> will stop
+                authenticating new requests.{' '}
+                {current
+                    ? 'This is your current session key, so you will be signed out.'
+                    : 'Clients using it will need a new credential.'}
+            </p>
+            {error && (
+                <p className="calls-dialog-error" role="alert">
+                    {error.friendlyMessage || 'Could not revoke this key. Try again.'}
+                </p>
+            )}
+            <div>
+                <button className="calls-button" autoFocus disabled={pending} onClick={onCancel}>
+                    Keep key
+                </button>
+                <button className="calls-button calls-confirm-delete" disabled={pending} onClick={onConfirm}>
+                    {pending ? 'Revoking…' : current ? 'Revoke and sign out' : 'Revoke key'}
+                </button>
+            </div>
+        </dialog>
     )
 }
 

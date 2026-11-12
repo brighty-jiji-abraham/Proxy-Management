@@ -17,7 +17,8 @@ import { getApiKey } from './api/api'
  *
  * The credential that actually governs this UI is the proxy's master API key:
  * it is what every write endpoint checks. So the key is the login. It is
- * verified against the proxy on submit and kept in localStorage.
+ * verified against the proxy on submit. Login can keep it for this browser
+ * session or remember it on this device.
  *
  * The Node email/password service is left untouched (services/authSerice.js)
  * if you later want real user accounts in front of this.

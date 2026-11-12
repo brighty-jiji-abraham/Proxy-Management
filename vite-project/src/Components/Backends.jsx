@@ -1,230 +1,622 @@
-import React, { useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useForm } from 'react-hook-form'
+import { Link } from 'react-router-dom'
 import {
-    Server, Plus, Trash2, RefreshCw, CheckCircle, XCircle,
-    HelpCircle, AlertCircle, Scale, Timer,
+    Activity,
+    AlertCircle,
+    ArrowUpRight,
+    Check,
+    ChevronDown,
+    Database,
+    Layers,
+    Plus,
+    RefreshCw,
+    Search,
+    Server,
+    ShieldCheck,
+    Timer,
+    Trash2,
+    X,
 } from 'lucide-react'
 import dashboardServices from '../services/dashboard.service'
+import { PanelHeading } from './CallCharts'
+import {
+    ServiceHeader,
+    ServiceMetric,
+    ServiceState,
+    ServiceEmpty,
+    ServiceBadge,
+    ServiceBars,
+    ServiceFooter,
+} from './ServiceUI'
+import { filterBackends, summarizeBackends } from '../utils/dashboardAnalytics'
+import { duration, number } from '../utils/callAnalytics'
+import { groupBackendRoutes, measured, pollingOptions, validUrl } from '../utils/serviceAnalytics'
 
-const statusStyle = {
-    healthy: { icon: CheckCircle, cls: 'text-emerald-400', chip: 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30' },
-    unhealthy: { icon: XCircle, cls: 'text-red-400', chip: 'bg-red-500/15 text-red-300 border-red-500/30' },
-    unknown: { icon: HelpCircle, cls: 'text-slate-500', chip: 'bg-slate-700/40 text-slate-400 border-slate-600/40' },
-}
-
-/**
- * Backend management: what is registered per route, whether it is healthy, and
- * add / remove at runtime.
- *
- * Add and remove hit the master-key endpoints and change the LIVE route table
- * only - they do not write .env, so anything added here is gone on restart.
- */
 function Backends() {
     const queryClient = useQueryClient()
-    const [failure, setFailure] = useState('')
-
+    const [paused, setPaused] = useState(false)
+    const [search, setSearch] = useState('')
+    const [status, setStatus] = useState('all')
+    const [removing, setRemoving] = useState(null)
+    const [message, setMessage] = useState('')
+    const inventoryRef = useRef(null)
     const backends = useQuery({
         queryKey: ['backends'],
         queryFn: dashboardServices.getDashboardDetails,
-        refetchInterval: 15000,
+        ...pollingOptions(paused, 15000),
     })
     const lb = useQuery({
         queryKey: ['lb-stats'],
         queryFn: dashboardServices.getLoadBalancerStats,
-        refetchInterval: 15000,
+        ...pollingOptions(paused, 15000),
     })
-
-    const { register, handleSubmit, reset, formState: { errors } } = useForm({
-        defaultValues: { route: '', url: '' },
-    })
-
-    const invalidate = () => {
-        queryClient.invalidateQueries({ queryKey: ['backends'] })
-        queryClient.invalidateQueries({ queryKey: ['dashboard'] })
-        queryClient.invalidateQueries({ queryKey: ['lb-stats'] })
-    }
-
-    const add = useMutation({
-        mutationFn: dashboardServices.addBackend,
-        onSuccess: () => { setFailure(''); reset(); invalidate() },
-        onError: (e) => setFailure(e?.friendlyMessage || 'Could not add that backend.'),
-    })
-
+    const sources = [
+        { ...backends, label: 'Backend health' },
+        { ...lb, label: 'Load balancer' },
+    ]
+    const health = useMemo(() => summarizeBackends(backends.data), [backends.data])
+    const routes = useMemo(() => groupBackendRoutes(health.backends), [health.backends])
+    const shown = groupBackendRoutes(filterBackends(health.backends, search, status))
+    const probeBars = health.backends
+        .filter((backend) => backend.response_time != null)
+        .sort((a, b) => b.response_time - a.response_time)
+        .slice(0, 6)
+        .map((backend) => ({
+            key: backend.id,
+            label: backend.name,
+            value: backend.response_time,
+            display: duration(backend.response_time),
+            color: backend.status === 'unhealthy' ? 'var(--calls-rose)' : 'var(--calls-cyan)',
+        }))
+    const connections = Object.values(lb.data?.connection_counts || {})
+        .filter(measured)
+        .reduce((total, count) => total + count, 0)
+    const invalidate = () =>
+        ['backends', 'lb-stats', 'config', 'routes'].forEach((key) =>
+            queryClient.invalidateQueries({ queryKey: [key] })
+        )
     const remove = useMutation({
         mutationFn: dashboardServices.removeBackend,
-        onSuccess: () => { setFailure(''); invalidate() },
-        onError: (e) => setFailure(e?.friendlyMessage || 'Could not remove that backend.'),
+        onSuccess: () => {
+            setMessage('Backend removed. The saved route configuration has been updated.')
+            setRemoving(null)
+            invalidate()
+        },
     })
-
-    // /admin/backends returns a flat map keyed "route:index" - group by route
-    // so the UI mirrors how the load balancer actually thinks about them.
-    const grouped = React.useMemo(() => {
-        const raw = backends.data || {}
-        const out = {}
-        Object.entries(raw).forEach(([key, info]) => {
-            if (!info || typeof info !== 'object' || !info.route) return
-            ;(out[info.route] ||= []).push({ key, ...info })
+    const {
+        register,
+        handleSubmit,
+        reset,
+        setFocus,
+        formState: { errors },
+    } = useForm({ defaultValues: { route: '', url: '' } })
+    const add = useMutation({
+        mutationFn: dashboardServices.addBackend,
+        onSuccess: () => {
+            setMessage('Backend added and saved. Health checks will appear shortly.')
+            reset()
+            invalidate()
+        },
+    })
+    const inspectRoute = (route) => {
+        setSearch(route)
+        setStatus('all')
+        inventoryRef.current?.scrollIntoView({
+            block: 'start',
+            behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth',
         })
-        return out
-    }, [backends.data])
-
+    }
+    const clearFilters = () => {
+        setSearch('')
+        setStatus('all')
+    }
     return (
-        <div className="p-6 space-y-6">
-            <div className="flex items-start justify-between gap-4 flex-wrap">
-                <div>
-                    <h1 className="text-3xl font-black text-slate-50 mb-1">Backends</h1>
-                    <p className="text-violet-300/85 font-semibold">
-                        {Object.keys(grouped).length} route
-                        {Object.keys(grouped).length === 1 ? '' : 's'} registered
-                    </p>
+        <div className="calls-page service-page backends-page">
+            <ServiceHeader
+                icon={Server}
+                title="Backends"
+                description="Your service routes, their health, and the instances behind them."
+                sources={sources}
+                paused={paused}
+                onPause={() => setPaused((value) => !value)}
+                interval="every 15 seconds"
+            />
+            <div className="service-content">
+                <div className="calls-metrics">
+                    <ServiceMetric
+                        icon={Layers}
+                        label="Registered routes"
+                        value={backends.data ? number(health.routes) : null}
+                        note={
+                            backends.data
+                                ? number(health.total) + ' backend instances'
+                                : 'Waiting for backend data'
+                        }
+                    />
+                    <ServiceMetric
+                        icon={ShieldCheck}
+                        label="Healthy instances"
+                        value={backends.data ? number(health.healthy) : null}
+                        color="green"
+                        note={
+                            backends.data
+                                ? health.unknown + ' awaiting a health result'
+                                : 'Waiting for health checks'
+                        }
+                    />
+                    <ServiceMetric
+                        icon={AlertCircle}
+                        label="Unhealthy instances"
+                        value={backends.data ? number(health.unhealthy) : null}
+                        color="rose"
+                        note="Based on the latest health checks"
+                    />
+                    <ServiceMetric
+                        icon={Activity}
+                        label="Tracked connections"
+                        value={lb.data ? number(connections) : null}
+                        color="cyan"
+                        note="Current load-balancer connections"
+                    />
                 </div>
-                <button
-                    onClick={() => { backends.refetch(); lb.refetch() }}
-                    className="flex items-center gap-2 px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 transition"
-                >
-                    <RefreshCw className={`w-4 h-4 ${backends.isFetching ? 'animate-spin' : ''}`} />
-                    Refresh
+                {message && (
+                    <div className="service-feedback success" role="status">
+                        <Check size={16} />
+                        <span>{message}</span>
+                    </div>
+                )}
+                <div className="service-grid">
+                    <section className="calls-panel">
+                        <PanelHeading
+                            icon={Layers}
+                            title="Route coverage"
+                            subtitle="Healthy instances per route. Select a route to inspect it."
+                        />
+                        <ServiceState query={backends} title="Route health">
+                            {routes.length ? (
+                                <>
+                                    <div className="backend-coverage">
+                                        {routes.map((group) => (
+                                            <button
+                                                key={group.route}
+                                                onClick={() => inspectRoute(group.route)}
+                                                aria-label={'Inspect route ' + group.route}
+                                            >
+                                                <span>{group.route}</span>
+                                                <span className="backend-coverage-track" aria-hidden="true">
+                                                    {[
+                                                        ['healthy', '#34d399'],
+                                                        ['unhealthy', '#fb7185'],
+                                                        ['unknown', '#64748b'],
+                                                    ].map(
+                                                        ([state, color]) =>
+                                                            group[state] > 0 && (
+                                                                <i
+                                                                    key={state}
+                                                                    style={{
+                                                                        width:
+                                                                            (group[state] /
+                                                                                group.instances.length) *
+                                                                                100 +
+                                                                            '%',
+                                                                        background: color,
+                                                                    }}
+                                                                />
+                                                            )
+                                                    )}
+                                                </span>
+                                                <strong>
+                                                    {group.healthy}/{group.instances.length} healthy
+                                                </strong>
+                                            </button>
+                                        ))}
+                                    </div>
+                                    <div className="backend-legend">
+                                        {[
+                                            ['Healthy', '#34d399'],
+                                            ['Unhealthy', '#fb7185'],
+                                            ['Unknown', '#64748b'],
+                                        ].map(([label, color]) => (
+                                            <span key={label}>
+                                                <i style={{ background: color }} />
+                                                {label}
+                                            </span>
+                                        ))}
+                                    </div>
+                                    <p className="service-panel-note">
+                                        {routes.filter((route) => route.healthy > 1).length} of{' '}
+                                        {routes.length} routes have more than one healthy instance.
+                                    </p>
+                                </>
+                            ) : (
+                                <ServiceEmpty
+                                    title="No routes registered"
+                                    description="Add a backend below to start routing requests."
+                                />
+                            )}
+                        </ServiceState>
+                    </section>
+                    <section className="calls-panel">
+                        <PanelHeading
+                            icon={Timer}
+                            title="Health-check latency"
+                            subtitle="Latest probe response for the six slowest measured instances."
+                        />
+                        <ServiceState query={backends} title="Probe timings">
+                            <ServiceBars
+                                items={probeBars}
+                                label="Latest health-check latency"
+                                emptyText="No probe timings yet"
+                            />
+                        </ServiceState>
+                        <p className="service-panel-note">
+                            Probe timings measure the health endpoint. Request latency is available in{' '}
+                            <Link className="service-link" to="/calls">
+                                Calls <ArrowUpRight size={12} />
+                            </Link>
+                            .
+                        </p>
+                    </section>
+                </div>
+                <div className="service-section-heading" ref={inventoryRef}>
+                    <div>
+                        <h2>Route inventory</h2>
+                        <p>Expand an instance to inspect its probe and manage its registration.</p>
+                    </div>
+                    <button className="calls-button service-primary-button" onClick={() => setFocus('route')}>
+                        <Plus size={15} />
+                        Add a backend
+                    </button>
+                </div>
+                <div className="service-workspace">
+                    <div className="service-column">
+                        <div className="service-toolbar">
+                            <label className="calls-search">
+                                <Search size={16} />
+                                <input
+                                    type="search"
+                                    aria-label="Search backends"
+                                    value={search}
+                                    onChange={(event) => setSearch(event.target.value)}
+                                    placeholder="Find a route, name, or URL…"
+                                />
+                                {search && (
+                                    <button aria-label="Clear backend search" onClick={() => setSearch('')}>
+                                        <X size={14} />
+                                    </button>
+                                )}
+                            </label>
+                            <div className="calls-segment" aria-label="Backend health filter">
+                                {[
+                                    ['all', 'All'],
+                                    ['healthy', 'Healthy'],
+                                    ['unhealthy', 'Unhealthy'],
+                                    ['unknown', 'Unknown'],
+                                ].map(([value, label]) => (
+                                    <button
+                                        key={value}
+                                        aria-pressed={status === value}
+                                        onClick={() => setStatus(value)}
+                                    >
+                                        {label}
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+                        <ServiceState query={backends} title="Backends">
+                            {!shown.length ? (
+                                <section className="calls-panel">
+                                    <ServiceEmpty
+                                        title={
+                                            health.total ? 'No matching backends' : 'No backends configured'
+                                        }
+                                        description={
+                                            health.total
+                                                ? 'Try another search or show all health states.'
+                                                : 'Register a route and its target URL to get started.'
+                                        }
+                                    >
+                                        {health.total > 0 && (
+                                            <button className="calls-button" onClick={clearFilters}>
+                                                Reset filters
+                                            </button>
+                                        )}
+                                    </ServiceEmpty>
+                                </section>
+                            ) : (
+                                shown.map((group) => (
+                                    <section
+                                        className="calls-panel backend-route"
+                                        key={group.route}
+                                        aria-label={'Route ' + group.route}
+                                    >
+                                        <div className="backend-route-heading">
+                                            <div>
+                                                <Server size={17} />
+                                                <h3>{group.route}</h3>
+                                                <span>{group.instances.length} shown</span>
+                                            </div>
+                                            <Link
+                                                className="service-link"
+                                                to={'/calls?route=' + encodeURIComponent(group.route)}
+                                            >
+                                                View calls <ArrowUpRight size={13} />
+                                            </Link>
+                                        </div>
+                                        {group.instances.map((backend) => (
+                                            <details className="backend-instance" key={backend.id}>
+                                                <summary>
+                                                    <div className="backend-instance-name">
+                                                        <strong>{backend.name}</strong>
+                                                        <span>{backend.url}</span>
+                                                    </div>
+                                                    <ServiceBadge tone={backend.status}>
+                                                        {backend.status}
+                                                    </ServiceBadge>
+                                                    <ChevronDown size={16} className="service-chevron" />
+                                                </summary>
+                                                <div className="service-details">
+                                                    <div className="service-detail-grid">
+                                                        <div>
+                                                            <span>Probe response</span>
+                                                            <strong>{duration(backend.response_time)}</strong>
+                                                        </div>
+                                                        <div>
+                                                            <span>Last checked</span>
+                                                            <strong>
+                                                                {backend.last_check
+                                                                    ? new Date(
+                                                                          backend.last_check * 1000
+                                                                      ).toLocaleString()
+                                                                    : 'Not checked yet'}
+                                                            </strong>
+                                                        </div>
+                                                        <div>
+                                                            <span>HTTP result</span>
+                                                            <strong>
+                                                                {backend.status_code ?? 'No result'}
+                                                            </strong>
+                                                        </div>
+                                                        <div>
+                                                            <span>Health endpoint</span>
+                                                            <strong>
+                                                                {backend.endpoint_used ||
+                                                                    backend.custom_health_route ||
+                                                                    '—'}
+                                                            </strong>
+                                                        </div>
+                                                        <div>
+                                                            <span>Consecutive successes</span>
+                                                            <strong>
+                                                                {backend.consecutive_successes ?? '—'}
+                                                            </strong>
+                                                        </div>
+                                                        <div>
+                                                            <span>Consecutive failures</span>
+                                                            <strong>
+                                                                {backend.consecutive_failures ?? '—'}
+                                                            </strong>
+                                                        </div>
+                                                    </div>
+                                                    {backend.error && (
+                                                        <div className="service-feedback">
+                                                            <AlertCircle size={15} />
+                                                            <span>{backend.error}</span>
+                                                        </div>
+                                                    )}
+                                                    {backend.response_data != null && (
+                                                        <pre aria-label="Health response">
+                                                            {typeof backend.response_data === 'string'
+                                                                ? backend.response_data
+                                                                : JSON.stringify(
+                                                                      backend.response_data,
+                                                                      null,
+                                                                      2
+                                                                  )}
+                                                        </pre>
+                                                    )}
+                                                    <div className="service-detail-actions">
+                                                        <span className="service-panel-note">
+                                                            Registration changes are saved immediately.
+                                                        </span>
+                                                        <button
+                                                            className="calls-button calls-danger-button"
+                                                            onClick={() => {
+                                                                remove.reset()
+                                                                setRemoving(backend)
+                                                            }}
+                                                        >
+                                                            <Trash2 size={14} />
+                                                            Remove backend
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            </details>
+                                        ))}
+                                    </section>
+                                ))
+                            )}
+                        </ServiceState>
+                    </div>
+                    <div className="service-column">
+                        <section className="calls-panel backend-add-panel">
+                            <PanelHeading
+                                icon={Plus}
+                                title="Add a backend"
+                                subtitle="Register a target on a new or existing route."
+                            />
+                            <form
+                                className="service-form"
+                                onSubmit={handleSubmit((values) => {
+                                    setMessage('')
+                                    add.mutate({ route: values.route.trim(), url: values.url.trim() })
+                                })}
+                            >
+                                <fieldset disabled={add.isPending}>
+                                    <div className="service-field">
+                                        <label htmlFor="backend-route">Route</label>
+                                        <input
+                                            id="backend-route"
+                                            placeholder="/app1"
+                                            aria-invalid={Boolean(errors.route)}
+                                            aria-describedby={
+                                                errors.route ? 'backend-route-error' : undefined
+                                            }
+                                            {...register('route', {
+                                                validate: (value) =>
+                                                    /^\/\S*$/.test(value.trim()) ||
+                                                    'Start with / and use no spaces.',
+                                            })}
+                                        />
+                                        {errors.route && (
+                                            <small id="backend-route-error" className="service-field-error">
+                                                {errors.route.message}
+                                            </small>
+                                        )}
+                                    </div>
+                                    <div className="service-field">
+                                        <label htmlFor="backend-url">Backend URL</label>
+                                        <input
+                                            id="backend-url"
+                                            placeholder="http://127.0.0.1:3001"
+                                            aria-invalid={Boolean(errors.url)}
+                                            aria-describedby={errors.url ? 'backend-url-error' : undefined}
+                                            {...register('url', {
+                                                validate: (value) =>
+                                                    validUrl(value) ||
+                                                    'Enter a valid http:// or https:// URL.',
+                                            })}
+                                        />
+                                        {errors.url && (
+                                            <small id="backend-url-error" className="service-field-error">
+                                                {errors.url.message}
+                                            </small>
+                                        )}
+                                    </div>
+                                </fieldset>
+                                {add.isError && (
+                                    <div className="service-feedback" role="alert">
+                                        <AlertCircle size={15} />
+                                        <span>
+                                            {add.error?.friendlyMessage ||
+                                                'Could not add the backend. Try again.'}
+                                        </span>
+                                    </div>
+                                )}
+                                <button
+                                    className="calls-button service-primary-button"
+                                    disabled={add.isPending}
+                                    type="submit"
+                                >
+                                    {add.isPending ? (
+                                        <RefreshCw size={15} className="calls-spin" />
+                                    ) : (
+                                        <Plus size={15} />
+                                    )}
+                                    {add.isPending ? 'Adding…' : 'Add backend'}
+                                </button>
+                                <p className="service-inline-note">
+                                    <Database size={16} />
+                                    <span>
+                                        Changes are saved and survive restarts. A master API key is required
+                                        to add or remove backends.
+                                    </span>
+                                </p>
+                            </form>
+                        </section>
+                        <section className="calls-panel">
+                            <PanelHeading
+                                icon={Activity}
+                                title="Load balancer"
+                                subtitle="Live connection and routing state."
+                            />
+                            <ServiceState query={lb} title="Load balancer">
+                                <dl className="service-data-list">
+                                    <div>
+                                        <dt>Tracked connections</dt>
+                                        <dd>{number(connections)}</dd>
+                                    </div>
+                                    <div>
+                                        <dt>Socket.IO sessions</dt>
+                                        <dd>{lb.data?.socketio_sessions ?? '—'}</dd>
+                                    </div>
+                                    <div>
+                                        <dt>Backends in cooldown</dt>
+                                        <dd>
+                                            {lb.data?.failed_backends
+                                                ? Object.keys(lb.data.failed_backends).length
+                                                : '—'}
+                                        </dd>
+                                    </div>
+                                </dl>
+                            </ServiceState>
+                        </section>
+                    </div>
+                </div>
+                <ServiceFooter sources={sources}>
+                    Health reflects the latest probe, not uptime. Unknown instances are waiting for a result.
+                    Connection counts are a current snapshot.
+                </ServiceFooter>
+            </div>
+            {removing && (
+                <RemoveBackendDialog
+                    backend={removing}
+                    last={routes.find((route) => route.route === removing.route)?.instances.length === 1}
+                    pending={remove.isPending}
+                    error={remove.error}
+                    onCancel={() => setRemoving(null)}
+                    onConfirm={() => remove.mutate({ route: removing.route, url: removing.url })}
+                />
+            )}
+        </div>
+    )
+}
+
+function RemoveBackendDialog({ backend, last, pending, error, onCancel, onConfirm }) {
+    const ref = useRef(null)
+    useEffect(() => {
+        const dialog = ref.current
+        dialog.showModal()
+        return () => dialog.close()
+    }, [])
+    return (
+        <dialog
+            className="calls-dialog"
+            ref={ref}
+            aria-labelledby="remove-backend-title"
+            aria-describedby="remove-backend-description"
+            onCancel={(event) => {
+                event.preventDefault()
+                if (!pending) onCancel()
+            }}
+        >
+            <span className="calls-dialog-icon">
+                <Trash2 size={22} />
+            </span>
+            <h2 id="remove-backend-title">Remove this backend?</h2>
+            <p id="remove-backend-description">
+                {backend.url} will be removed from {backend.route}.
+                {last
+                    ? ' This is the last instance, so the route will also be removed.'
+                    : ' New requests will use the remaining instances.'}{' '}
+                This change is saved immediately.
+            </p>
+            {error && (
+                <p className="calls-dialog-error" role="alert">
+                    {error.friendlyMessage || 'Could not remove this backend. Try again.'}
+                </p>
+            )}
+            <div>
+                <button className="calls-button" autoFocus disabled={pending} onClick={onCancel}>
+                    Keep backend
+                </button>
+                <button className="calls-button calls-confirm-delete" disabled={pending} onClick={onConfirm}>
+                    {pending ? 'Removing…' : 'Remove backend'}
                 </button>
             </div>
-
-            {lb.data?.strategy && (
-                <div className="flex items-center gap-2 text-sm text-slate-400">
-                    <Scale className="w-4 h-4" />
-                    Load balancing: <span className="font-mono text-violet-300">{lb.data.strategy}</span>
-                </div>
-            )}
-
-            {(failure || backends.isError) && (
-                <div className="flex items-start gap-2 p-4 rounded-2xl bg-red-500/10 border border-red-500/30">
-                    <AlertCircle className="w-5 h-5 text-red-400 mt-0.5 shrink-0" />
-                    <p className="text-sm text-red-300">
-                        {failure || backends.error?.friendlyMessage || 'Could not load backends.'}
-                    </p>
-                </div>
-            )}
-
-            <div className="space-y-4">
-                {Object.entries(grouped).map(([route, instances]) => (
-                    <div key={route} className="p-5 rounded-2xl bg-slate-900/60 border border-slate-800/70">
-                        <div className="flex items-center gap-2 mb-4">
-                            <Server className="w-5 h-5 text-violet-400" />
-                            <h3 className="text-lg font-bold text-slate-50 font-mono">{route}</h3>
-                            <span className="text-xs text-slate-500">
-                                {instances.length} instance{instances.length === 1 ? '' : 's'}
-                            </span>
-                        </div>
-
-                        <div className="space-y-2">
-                            {instances.map((inst) => {
-                                const style = statusStyle[inst.status] || statusStyle.unknown
-                                const Icon = style.icon
-                                return (
-                                    <div
-                                        key={inst.key}
-                                        className="flex items-center justify-between gap-4 p-3 rounded-xl bg-slate-950/50 border border-slate-800/50 flex-wrap"
-                                    >
-                                        <div className="flex items-center gap-3 min-w-0">
-                                            <Icon className={`w-4 h-4 shrink-0 ${style.cls}`} />
-                                            <div className="min-w-0">
-                                                <div className="font-mono text-sm text-slate-200 break-all">
-                                                    {inst.url}
-                                                </div>
-                                                <div className="flex gap-3 mt-1 text-xs text-slate-500 flex-wrap">
-                                                    <span className={`px-1.5 py-0.5 rounded border ${style.chip}`}>
-                                                        {inst.status}
-                                                    </span>
-                                                    {inst.response_time != null && (
-                                                        <span className="flex items-center gap-1">
-                                                            <Timer className="w-3 h-3" />
-                                                            {Math.round(inst.response_time)}ms
-                                                        </span>
-                                                    )}
-                                                    {inst.consecutive_failures > 0 && (
-                                                        <span className="text-red-400">
-                                                            {inst.consecutive_failures} consecutive failures
-                                                        </span>
-                                                    )}
-                                                    {inst.error && (
-                                                        <span className="text-red-400/70 truncate max-w-md" title={inst.error}>
-                                                            {inst.error}
-                                                        </span>
-                                                    )}
-                                                </div>
-                                            </div>
-                                        </div>
-
-                                        <button
-                                            onClick={() => {
-                                                if (window.confirm(`Remove ${inst.url} from ${route}?`))
-                                                    remove.mutate({ route, url: inst.url })
-                                            }}
-                                            disabled={remove.isPending}
-                                            className="p-2 rounded-lg bg-red-500/10 hover:bg-red-500/20 border border-red-500/30 text-red-300 transition disabled:opacity-50 shrink-0"
-                                            aria-label="Remove backend"
-                                        >
-                                            <Trash2 className="w-4 h-4" />
-                                        </button>
-                                    </div>
-                                )
-                            })}
-                        </div>
-                    </div>
-                ))}
-            </div>
-
-            <div className="max-w-xl p-6 rounded-2xl bg-slate-900/60 border border-slate-800/70">
-                <h3 className="text-lg font-bold text-slate-50 mb-1">Add a backend</h3>
-                {/* Runtime-only: the proxy mutates its in-memory route table. */}
-                <p className="text-xs text-slate-500 mb-4">
-                    Applies immediately but is not written to <span className="font-mono">.env</span>,
-                    so it is lost when the proxy restarts.
-                </p>
-                <form
-                    onSubmit={handleSubmit((d) => add.mutate(d))}
-                    className="space-y-4"
-                >
-                    <div className="space-y-2">
-                        <label className="text-sm font-semibold text-slate-300">Route</label>
-                        <input
-                            {...register('route', {
-                                required: 'Route is required',
-                                pattern: { value: /^\//, message: 'Must start with /' },
-                            })}
-                            className={`w-full px-4 py-3 rounded-xl bg-slate-950/60 border text-slate-100 placeholder-slate-600 outline-none focus:ring-2 focus:ring-violet-500/40 transition ${
-                                errors.route ? 'border-red-500/50' : 'border-slate-700/50'
-                            }`}
-                            placeholder="/app1"
-                        />
-                        {errors.route && <p className="text-red-400 text-xs">{errors.route.message}</p>}
-                    </div>
-
-                    <div className="space-y-2">
-                        <label className="text-sm font-semibold text-slate-300">Backend URL</label>
-                        <input
-                            {...register('url', {
-                                required: 'URL is required',
-                                pattern: { value: /^https?:\/\//, message: 'Must start with http:// or https://' },
-                            })}
-                            className={`w-full px-4 py-3 rounded-xl bg-slate-950/60 border text-slate-100 placeholder-slate-600 outline-none focus:ring-2 focus:ring-violet-500/40 transition ${
-                                errors.url ? 'border-red-500/50' : 'border-slate-700/50'
-                            }`}
-                            placeholder="http://127.0.0.1:3001"
-                        />
-                        {errors.url && <p className="text-red-400 text-xs">{errors.url.message}</p>}
-                    </div>
-
-                    <button
-                        type="submit"
-                        disabled={add.isPending}
-                        className="w-full flex items-center justify-center gap-2 py-3 rounded-xl bg-violet-600 hover:bg-violet-500 disabled:opacity-50 text-white font-bold transition"
-                    >
-                        <Plus className="w-4 h-4" />
-                        {add.isPending ? 'Adding...' : 'Add backend'}
-                    </button>
-                </form>
-            </div>
-        </div>
+        </dialog>
     )
 }
 

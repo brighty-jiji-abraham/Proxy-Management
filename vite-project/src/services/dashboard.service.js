@@ -15,6 +15,13 @@ import api from "../api/api.js"
  */
 const dashboardServices = {
     // --- health and status ----------------------------------------------
+    checkConnection: async ({ signal } = {}) => {
+        const start = performance.now()
+        const response = await api.get('/health', { timeout: 5000, signal })
+        if (response.data?.status !== 'healthy' || response.data?.component !== 'admin-panel')
+            throw new Error('The configured address did not return the proxy admin health check.')
+        return { roundTrip: Math.round(performance.now() - start) }
+    },
     getDashboardDetails: async () => (await api.get("/backends")).data,
     getBackendsSummary: async () => (await api.get("/backends/summary")).data,
     getRouteBackends: async (route) =>
@@ -69,7 +76,7 @@ const dashboardServices = {
     revokeApiKey: async (api_key) =>
         (await api.post("/api-keys/revoke", { api_key })).data,
     validateApiKey: async (api_key) =>
-        (await api.post("/api-keys/validate", { api_key })).data,
+        (await api.post("/api-keys/validate", { api_key }, { timeout: 15000 })).data,
 }
 
 export default dashboardServices;

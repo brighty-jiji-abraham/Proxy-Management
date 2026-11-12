@@ -20,6 +20,22 @@ export function percentile(values, percent) {
     return sorted[Math.max(0, Math.ceil((percent / 100) * sorted.length) - 1)]
 }
 
+// Connect observed averages without treating quiet minutes as zero latency.
+// Flag spans with missing samples so the chart can distinguish them visually.
+export function latencySeries(series) {
+    const points = series.flatMap((bucket, index) =>
+        bucket.count > 0 && Number.isFinite(bucket.avg_ms) && bucket.avg_ms >= 0
+            ? [{ index, minute: bucket.minute, ms: bucket.avg_ms }]
+            : []
+    )
+    const segments = points.slice(1).map((point, index) => ({
+        from: points[index],
+        to: point,
+        gap: point.index - points[index].index > 1 || point.minute - points[index].minute > 60,
+    }))
+    return { points, segments }
+}
+
 const STATUS_GROUPS = [
     { key: '2xx', label: 'Successful', color: '#34d399' },
     { key: '3xx', label: 'Redirected', color: '#38bdf8' },

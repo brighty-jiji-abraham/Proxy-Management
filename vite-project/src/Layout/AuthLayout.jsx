@@ -4,6 +4,7 @@ import {
     ShieldCheck, Activity, Plus, Eye, Zap, Server, Radio, Cpu, LogOut, History
 } from 'lucide-react'
 import { setApiKey } from '../api/api'
+import './AuthLayout.css'
 
 
 // Declared once rather than repeated per <Link>: adding a page is now a row
@@ -20,10 +21,9 @@ const NAV_ITEMS = [
 
 
 function AuthLayout({ onSignOut }) {
-    const isCallsPage = useLocation().pathname.replace(/\/+$/, '') === '/calls'
+    const { pathname } = useLocation()
     const navigationRef = useRef(null)
     useEffect(() => {
-        if (!isCallsPage) return
         const mobile = window.matchMedia('(max-width: 900px)')
         const revealActiveLink = () => {
             const navigation = navigationRef.current
@@ -33,16 +33,16 @@ function AuthLayout({ onSignOut }) {
             }
         }
         revealActiveLink()
-        mobile.addEventListener('change', revealActiveLink)
-        return () => mobile.removeEventListener('change', revealActiveLink)
-    }, [isCallsPage])
+        window.addEventListener('resize', revealActiveLink)
+        return () => window.removeEventListener('resize', revealActiveLink)
+    }, [pathname])
     // Active state came from useState, so it only updated when a link was
     // clicked - a back/forward navigation or a direct URL left the wrong item
     // highlighted. NavLink derives it from the current route instead.
 
 
     return (
-        <div className={`${isCallsPage ? 'calls-shell ' : ''}flex flex-col w-screen h-screen transition-all duration-500 relative overflow-hidden bg-gradient-to-br from-slate-900 via-slate-950 to-slate-900`}>
+        <div className="app-shell flex flex-col w-screen h-screen relative overflow-hidden bg-gradient-to-br from-slate-900 via-slate-950 to-slate-900">
             {/* Enhanced Animated Background */}
             <div className="absolute inset-0 overflow-hidden pointer-events-none">
                 {/* Primary gradient overlay – slightly lighter */}
@@ -151,7 +151,7 @@ function AuthLayout({ onSignOut }) {
 
 
                         {/* Nav */}
-                        <nav ref={navigationRef} className="px-6 pb-6 relative">
+                        <nav ref={navigationRef} aria-label="Main navigation" className="px-6 pb-6 relative">
                             <div className="space-y-3">
                                 {NAV_ITEMS.map((item) => (
                                     <NavLink key={item.to} to={item.to}>
@@ -168,6 +168,7 @@ function AuthLayout({ onSignOut }) {
                             </div>
 
                             <button
+                                aria-label="Sign out"
                                 onClick={() => {
                                     setApiKey('')
                                     onSignOut?.()
@@ -191,7 +192,7 @@ function AuthLayout({ onSignOut }) {
 
 
                     <div className="p-8 relative z-10">
-                        <Outlet />
+                        <Outlet context={{ onSignOut }} />
                     </div>
                 </main>
             </div>

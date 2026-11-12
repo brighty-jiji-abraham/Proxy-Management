@@ -1,0 +1,104 @@
+.key-page .key-create-grid { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(300px, .85fr); gap: 22px; align-items: start; }
+.key-page .key-form-panel { padding: 28px; }
+.key-form-panel .calls-panel-heading { margin-bottom: 26px; }
+.key-form-panel .service-form { gap: 24px; }
+.key-form-panel .service-field input { padding: 12px 14px; }
+.key-form-panel .service-primary-button { min-height: 42px; }
+.key-form-footer { display: flex; align-items: center; justify-content: space-between; gap: 18px; padding-top: 7px; }
+.key-form-footer > span { font-size: 10px; color: #94a3b8; }
+.key-preview-panel { background: #121d31; border-color: #34405b; }
+.key-preview-title { display: flex; align-items: center; justify-content: space-between; gap: 15px; }
+.key-preview-icon { width: 44px; height: 44px; display: grid; place-items: center; border: 1px solid #a78bfa3b; background: #a78bfa0a; border-radius: 11px; color: #c4b5fd; }
+.key-preview-panel .key-preview-name { color: #f1f5f9; font-weight: 600; font-size: 21px; letter-spacing: -.4px; overflow-wrap: anywhere; margin-top: 22px; }
+.key-preview-owner { display: flex; gap: 7px; color: #a6b8cf; align-items: center; font-size: 12px; margin-top: 6px; overflow-wrap: anywhere; }
+.key-preview-token { margin: 24px 0; padding: 17px; border: 1px dashed #3d4c68; border-radius: 7px; color: #8393ae; letter-spacing: 3px; font-size: 13px; }
+.key-preview-panel .service-data-list { border-top: 1px solid #2c3a50; padding-top: 20px; }
+.key-role { display: inline-flex; align-items: center; gap: 5px; font-size: 10px; color: #b7c7df; border: 1px solid #47556970; padding: 4px 7px; border-radius: 5px; background: #94a3b808; width: fit-content; white-space: nowrap; }
+.key-role.admin { color: #d4c6ff; border-color: #a78bfa40; background: #a78bfa0a; }
+.key-storage-note { display: flex; align-items: flex-start; gap: 10px; padding: 16px 18px; background: #fbbf2405; border: 1px solid #fbbf2426; border-radius: 8px; }
+.key-storage-note > svg { color: #fbbf24; margin-top: 2px; }
+.key-storage-note strong { font-size: 11px; font-weight: 550; color: #d6d9e1; }
+.key-storage-note p { margin-top: 4px; color: #99abc4; font-size: 11px; line-height: 1.7; }
+.key-guide { display: flex; flex-direction: column; gap: 19px; }
+.key-guide-item { display: flex; align-items: flex-start; gap: 12px; }
+.key-guide-item > svg { color: #95a6c1; margin-top: 1px; }
+.key-guide-item h3 { color: #d2ddec; font-size: 12px; font-weight: 550; }
+.key-guide-item p { color: #94a3b8; font-size: 11px; margin-top: 4px; line-height: 1.7; }
+.key-header-example { background: #0b1424; padding: 13px; font-size: 11px; color: #b5c6de; border: 1px solid #263249; border-radius: 6px; overflow-wrap: anywhere; }
+.key-header-example code { white-space: pre-wrap; }
+.key-issued { border-color: #34d39940; }
+.key-issued-heading { display: flex; align-items: center; gap: 12px; margin-bottom: 20px; }
+.key-issued-heading > span { display: grid; place-items: center; width: 43px; height: 43px; border-radius: 11px; background: #34d39910; border: 1px solid #34d39930; color: #6ee7b7; }
+.key-issued-heading h2 { color: #d1fae5; font-size: 18px; }
+.key-issued-heading p { font-size: 11px; color: #94a3b8; margin-top: 4px; }
+.key-issued .key-credential { margin: 22px 0; }
+.key-issued .service-data-list { margin: 23px 0; }
+.key-issued-actions { display: flex; flex-wrap: wrap; gap: 10px; border-top: 1px solid #263249; padding-top: 21px; }
+.key-credential { min-width: 0; }
+.key-credential-field { display: flex; align-items: center; gap: 15px; padding: 12px 14px; background: #0a1323; border: 1px solid #334155; border-radius: 7px; }
+.key-credential-field > code { color: #c8d8ec; overflow-wrap: anywhere; font-size: 12px; flex: 1; min-width: 0; user-select: all; }
+.key-credential-field > div { display: flex; align-items: center; gap: 5px; flex-shrink: 0; }
+.key-credential-field .calls-button { min-height: 32px; font-size: 11px; padding: 6px 10px; }
+.key-copy-feedback { display: block; font-size: 11px; color: #94a3b8; margin-top: 9px; }
+.key-copy-feedback.error { color: #fcd34d; }
+.key-usage { display: flex; flex-direction: column; gap: 15px; }
+.key-usage button { display: grid; grid-template-columns: 112px minmax(30px, 1fr) 25px; gap: 17px; align-items: center; width: 100%; text-align: left; font-size: 11px; }
+.key-usage button > span:first-child { display: flex; align-items: center; gap: 8px; color: #bfcce0; }
+.key-usage button > span:first-child > i { display: block; width: 6px; height: 6px; border-radius: 50%; }
+.key-usage button > strong { font-weight: 550; color: #dbe4f0; text-align: right; }
+.key-usage button:hover > span:first-child { color: #ede9fe; }
+.key-usage-track { height: 7px; background: #243047; border-radius: 4px; overflow: hidden; }
+.key-usage-track > i { display: block; height: 100%; border-radius: 4px; transition: width .5s; animation: service-bar-in .6s ease-out; transform-origin: left; }
+.key-library { padding: 0; overflow: hidden; scroll-margin-top: 20px; }
+.key-library > .calls-panel-heading { padding: 22px 23px 0; }
+.key-library > .service-toolbar { padding: 0 23px 22px; }
+.key-library .calls-panel-heading > .calls-button { flex-shrink: 0; }
+.key-row { border-top: 1px solid #263249; }
+.key-row summary { display: grid; grid-template-columns: 35px minmax(0, 1fr) 130px 130px 16px; align-items: center; gap: 20px; padding: 21px 23px; list-style: none; cursor: pointer; transition: background .16s; }
+.key-row summary::-webkit-details-marker { display: none; }
+.key-row summary:hover, .key-row[open] summary { background: #172339; }
+.key-row-icon { display: grid; place-items: center; width: 35px; height: 35px; color: #a78bfa; background: #a78bfa0a; border: 1px solid #a78bfa27; border-radius: 8px; }
+.key-row-identity { min-width: 0; }
+.key-row-name { display: flex; align-items: center; gap: 9px; flex-wrap: wrap; }
+.key-row-name > strong { color: #e2e8f0; font-size: 12px; font-weight: 550; overflow-wrap: anywhere; }
+.key-row-identity > span { display: block; font-size: 10px; color: #94a3b8; margin-top: 6px; overflow-wrap: anywhere; }
+.key-session-badge { display: inline-flex; align-items: center; gap: 5px; padding: 2px 6px; font-size: 9px; color: #6ee7b7; border: 1px solid #34d39930; border-radius: 4px; background: #34d3990a; white-space: nowrap; }
+.key-last-used { display: flex; flex-direction: column; gap: 5px; }
+.key-last-used > span { font-size: 10px; color: #94a3b8; }
+.key-last-used > strong { font-size: 11px; font-weight: 500; color: #c2d2e7; }
+.key-row-details { display: flex; flex-direction: column; gap: 22px; }
+.key-row-details .service-detail-actions { margin-top: 0; }
+.key-row-details .service-detail-actions > span { font-size: 10px; color: #94a3b8; }
+.key-dialog-owner { color: #c4b5fd; }
+@media (max-width: 1200px) {
+    .key-row summary { grid-template-columns: 32px minmax(0, 1fr) 110px 105px 15px; gap: 14px; }
+    .key-page .key-create-grid { grid-template-columns: minmax(0, 1.1fr) minmax(270px, .9fr); gap: 18px; }
+    .key-page .key-form-panel { padding: 23px; }
+    .key-form-footer { align-items: flex-start; flex-direction: column-reverse; gap: 12px; }
+    .key-form-footer .calls-button { width: 100%; }
+}
+@media (max-width: 1000px) {
+    .key-page .key-create-grid { grid-template-columns: 1fr; }
+    .key-creation-aside { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; }
+    .key-row summary { grid-template-columns: 30px minmax(0, 1fr) 105px 14px; }
+    .key-row summary > .key-role { display: none; }
+}
+@media (max-width: 700px) {
+    .key-creation-aside { display: flex; align-items: stretch; }
+    .key-page .key-form-panel { padding: 21px 18px; }
+    .key-library > .calls-panel-heading { padding: 18px 16px 0; flex-wrap: wrap; }
+    .key-library > .service-toolbar { padding: 0 16px 17px; }
+    .key-row summary { padding: 18px 16px; gap: 12px; grid-template-columns: 28px minmax(0, 1fr) 85px 14px; }
+    .key-row-icon { width: 28px; height: 28px; }
+    .key-credential-field { gap: 10px; padding: 11px; flex-wrap: wrap; }
+    .key-credential-field > code { flex-basis: 100%; }
+    .key-credential-field > div { margin-left: auto; }
+    .key-usage button { grid-template-columns: 108px minmax(30px, 1fr) 23px; gap: 12px; }
+}
+@media (max-width: 420px) {
+    .key-row summary { grid-template-columns: minmax(0, 1fr) 80px 12px; gap: 10px; }
+    .key-row-icon { display: none; }
+    .key-storage-note { padding: 14px; }
+    .key-row-name > strong { font-size: 11px; }
+    .key-page .calls-header-actions > .calls-button { font-size: 11px; }
+}

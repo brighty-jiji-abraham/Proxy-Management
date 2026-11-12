@@ -1,4 +1,5 @@
 import axios from "axios";
+import { readCredential, saveCredential } from '../utils/credentialStorage'
 
 // Base URL of the proxy's admin API, e.g. http://localhost:2000/admin
 const api = axios.create({
@@ -14,15 +15,11 @@ const api = axios.create({
 // NOTE: a Vite env var is baked into the built bundle and is readable by anyone
 // who loads the page. That is acceptable only because this UI is meant to run
 // on the same private machine as the proxy. Do not deploy it publicly.
-const STORAGE_KEY = "proxyApiKey"
-
 export const getApiKey = () =>
-    localStorage.getItem(STORAGE_KEY) || import.meta.env.VITE_apiKey || ""
+    readCredential(localStorage, sessionStorage, import.meta.env.VITE_apiKey || '')
 
-export const setApiKey = (key) => {
-    if (key) localStorage.setItem(STORAGE_KEY, key)
-    else localStorage.removeItem(STORAGE_KEY)
-}
+export const setApiKey = (key, { remember = true } = {}) =>
+    saveCredential(key, remember, localStorage, sessionStorage)
 
 api.interceptors.request.use((req) => {
     if (req.data instanceof FormData) {

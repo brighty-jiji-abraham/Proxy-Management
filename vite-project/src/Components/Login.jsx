@@ -1,141 +1,248 @@
-import React, { useState } from 'react'
+import { useState } from 'react'
 import { useForm } from 'react-hook-form'
-import { Eye, EyeOff, Key, ArrowRight, ShieldCheck, AlertCircle } from 'lucide-react'
 import { useMutation } from '@tanstack/react-query'
+import {
+    Activity,
+    AlertCircle,
+    ArrowRight,
+    ChevronDown,
+    Cpu,
+    Eye,
+    EyeOff,
+    KeyRound,
+    Laptop,
+    LockKeyhole,
+    Network,
+    RefreshCw,
+    Server,
+    ShieldCheck,
+    Webhook,
+} from 'lucide-react'
 import dashboardServices from '../services/dashboard.service'
 import { setApiKey } from '../api/api'
+import LoginConnection from './LoginConnection'
+import './Login.css'
 
-/**
- * Sign in with the proxy's master API key.
- *
- * The previous version collected a username and password and POSTed them to
- * /login on the admin base URL - an endpoint that does not exist there. Real
- * user accounts live in the Node service, which needs MongoDB and is not part
- * of running the proxy.
- *
- * The master key is what the proxy itself checks on every write endpoint, so
- * that is the credential this UI needs. It is verified against
- * POST /admin/api-keys/validate (deliberately unauthenticated, so it can be
- * used as the login check) and then stored for subsequent requests.
- */
 function Login({ onAuthenticated }) {
     const [showKey, setShowKey] = useState(false)
     const [failure, setFailure] = useState('')
-
+    const [capsLock, setCapsLock] = useState(false)
     const {
         register,
         handleSubmit,
         formState: { errors },
-    } = useForm({ defaultValues: { apiKey: '' } })
-
+        watch,
+    } = useForm({ defaultValues: { apiKey: '', remember: false } })
+    const remember = watch('remember')
     const verify = useMutation({
-        mutationFn: async (apiKey) => {
-            // Store first: the axios interceptor reads the key from storage,
-            // and validate itself needs no auth, so this is safe to do before
-            // we know the answer - and it is cleared again on failure.
-            setApiKey(apiKey)
+        mutationFn: async ({ apiKey }) => {
             const result = await dashboardServices.validateApiKey(apiKey)
-            if (!result?.valid) throw new Error('That key was rejected by the proxy.')
+            if (result?.valid !== true)
+                throw new Error('That key was not recognized. Check the value and try again.')
             return result
         },
-        onSuccess: () => {
+        onSuccess: (_, { apiKey, remember }) => {
+            // Validation is public. Save only the credential the proxy has accepted.
+            setApiKey(apiKey, { remember })
             setFailure('')
             onAuthenticated?.()
         },
-        onError: (err) => {
-            setApiKey('')
+        onError: (error) =>
             setFailure(
-                err?.friendlyMessage ||
-                err?.message ||
-                'Could not reach the proxy. Is it running on VITE_baseURL?'
-            )
-        },
+                error?.friendlyMessage ||
+                    error?.message ||
+                    'Could not reach the proxy. Check the connection and try again.'
+            ),
     })
-
-    const onSubmit = ({ apiKey }) => verify.mutate(apiKey.trim())
-
+    const onSubmit = ({ apiKey, remember }) => {
+        setFailure('')
+        verify.mutate({ apiKey: apiKey.trim(), remember })
+    }
     return (
-        <div className="min-h-screen flex items-center justify-center transition-all duration-500 relative overflow-hidden bg-gradient-to-br from-slate-900 via-slate-950 to-slate-900">
-            <div className="absolute inset-0 overflow-hidden pointer-events-none">
-                <div className="absolute inset-0 bg-gradient-to-br from-slate-900/40 via-transparent to-slate-900/40"></div>
-                <div className="absolute -top-40 -right-40 w-80 h-80 bg-slate-800/10 rounded-full mix-blend-multiply filter blur-xl animate-blob"></div>
-                <div className="absolute -bottom-40 -left-40 w-80 h-80 bg-slate-800/10 rounded-full mix-blend-multiply filter blur-xl animate-blob animation-delay-2000"></div>
-                <div className="absolute inset-0 bg-[radial-gradient(circle_at_1px_1px,rgba(255,255,255,0.025)_1px,transparent_0)] bg-[length:50px_50px]"></div>
-            </div>
-
-            <div className="relative z-10 w-full max-w-md mx-4">
-                <div className="p-8 rounded-3xl border bg-gradient-to-br from-slate-900/90 via-slate-900/80 to-slate-900/90 border-slate-800/70 shadow-2xl overflow-hidden">
-                    <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(139,92,246,0.03)_0%,transparent_50%)]"></div>
-
-                    <div className="relative">
-                        <div className="text-center mb-8">
-                            <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-violet-500/10 border border-violet-500/30 mb-4">
-                                <ShieldCheck className="w-7 h-7 text-violet-300" />
-                            </div>
-                            <h1 className="text-3xl font-black text-slate-50 mb-2">ProxyVault</h1>
-                            <p className="text-violet-300/85 font-semibold">
-                                Sign in with the proxy master key
-                            </p>
+        <div className="login-page">
+            <div className="login-shell">
+                <header className="login-header">
+                    <div className="login-brand">
+                        <span>
+                            <ShieldCheck size={25} />
+                        </span>
+                        <div>
+                            <strong>ProxyVault</strong>
+                            <small>Proxy management</small>
                         </div>
-
-                        <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
-                            <div className="space-y-2">
-                                <label className="text-sm font-semibold text-slate-300">
-                                    Master API key
-                                </label>
-                                <div className="relative">
-                                    <Key className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
+                    </div>
+                    <span className="login-console-label">
+                        <LockKeyhole size={14} />
+                        Management console
+                    </span>
+                </header>
+                <main className="login-main">
+                    <section className="login-intro" aria-label="About ProxyVault">
+                        <h2>
+                            Your services, <br />
+                            in clear view.
+                        </h2>
+                        <p>Follow requests, check backend health, and manage access from one dashboard.</p>
+                        <div
+                            className="login-routing"
+                            role="img"
+                            aria-label="Routing overview: client requests pass through ProxyVault to services, models, and integrations."
+                        >
+                            <div className="login-route-node">
+                                <Laptop size={23} />
+                                <strong>Clients</strong>
+                                <span>Requests</span>
+                            </div>
+                            <div className="login-route-line" />
+                            <div className="login-route-hub">
+                                <ShieldCheck size={27} />
+                                <strong>ProxyVault</strong>
+                                <span>Route &amp; observe</span>
+                            </div>
+                            <div className="login-route-branches">
+                                <div>
+                                    <Server size={15} />
+                                    <span>Services</span>
+                                </div>
+                                <div>
+                                    <Cpu size={15} />
+                                    <span>Models</span>
+                                </div>
+                                <div>
+                                    <Webhook size={15} />
+                                    <span>Integrations</span>
+                                </div>
+                            </div>
+                        </div>
+                        <div className="login-features">
+                            <div>
+                                <Activity size={16} />
+                                <span>Request insights</span>
+                            </div>
+                            <div>
+                                <Network size={16} />
+                                <span>Service health</span>
+                            </div>
+                            <div>
+                                <KeyRound size={16} />
+                                <span>Access control</span>
+                            </div>
+                        </div>
+                    </section>
+                    <section className="login-form-panel" aria-labelledby="login-title">
+                        <span className="login-form-icon">
+                            <KeyRound size={22} />
+                        </span>
+                        <h1 id="login-title">Sign in</h1>
+                        <p>Open your proxy's control center.</p>
+                        <LoginConnection />
+                        <form onSubmit={handleSubmit(onSubmit)} aria-busy={verify.isPending}>
+                            <fieldset disabled={verify.isPending}>
+                                <label htmlFor="login-api-key">Master API key</label>
+                                <div className={'login-key-input' + (errors.apiKey ? ' invalid' : '')}>
+                                    <KeyRound size={16} />
                                     <input
+                                        id="login-api-key"
                                         type={showKey ? 'text' : 'password'}
                                         autoComplete="off"
+                                        autoCapitalize="none"
+                                        autoCorrect="off"
                                         spellCheck="false"
+                                        onKeyDown={(event) => setCapsLock(event.getModifierState('CapsLock'))}
+                                        onKeyUp={(event) => setCapsLock(event.getModifierState('CapsLock'))}
+                                        placeholder="Enter your master API key"
+                                        aria-required="true"
+                                        aria-invalid={Boolean(errors.apiKey)}
+                                        aria-describedby={
+                                            errors.apiKey
+                                                ? 'login-key-error login-key-help'
+                                                : 'login-key-help'
+                                        }
                                         {...register('apiKey', {
-                                            required: 'Enter the master API key',
-                                            minLength: { value: 4, message: 'That looks too short' },
+                                            validate: (value) =>
+                                                !value.trim()
+                                                    ? 'Enter your master API key.'
+                                                    : value.trim().length < 4
+                                                      ? 'Check your key; it looks too short.'
+                                                      : true,
+                                            onChange: () => setFailure(''),
+                                            onBlur: () => setCapsLock(false),
                                         })}
-                                        className={`w-full pl-10 pr-11 py-3 rounded-xl bg-slate-950/60 border text-slate-100 placeholder-slate-600 outline-none focus:ring-2 focus:ring-violet-500/40 transition ${
-                                            errors.apiKey ? 'border-red-500/50' : 'border-slate-700/50'
-                                        }`}
-                                        placeholder="MASTER_API_KEY from the proxy .env"
                                     />
                                     <button
                                         type="button"
-                                        onClick={() => setShowKey((v) => !v)}
-                                        className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300 transition"
-                                        aria-label={showKey ? 'Hide key' : 'Show key'}
+                                        onClick={() => setShowKey((value) => !value)}
+                                        aria-label={showKey ? 'Hide API key' : 'Show API key'}
+                                        aria-pressed={showKey}
                                     >
-                                        {showKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                                        {showKey ? <EyeOff size={17} /> : <Eye size={17} />}
                                     </button>
                                 </div>
                                 {errors.apiKey && (
-                                    <p className="text-red-400 text-xs mt-1">{errors.apiKey.message}</p>
+                                    <p className="login-field-error" id="login-key-error" role="alert">
+                                        {errors.apiKey.message}
+                                    </p>
                                 )}
-                            </div>
-
+                                <p className="login-field-help" id="login-key-help">
+                                    Use the key configured for your proxy.
+                                </p>
+                                {capsLock && (
+                                    <p className="login-caps-lock" role="status">
+                                        Caps Lock is on. API keys are case sensitive.
+                                    </p>
+                                )}
+                                <label className="login-remember">
+                                    <input type="checkbox" {...register('remember')} />
+                                    <span>
+                                        Remember on this device
+                                        <small>Leave off to keep the key for this browser session.</small>
+                                    </span>
+                                </label>
+                            </fieldset>
                             {failure && (
-                                <div className="flex items-start gap-2 p-3 rounded-xl bg-red-500/10 border border-red-500/30">
-                                    <AlertCircle className="w-4 h-4 text-red-400 mt-0.5 shrink-0" />
-                                    <p className="text-sm text-red-300">{failure}</p>
+                                <div className="login-error" role="alert">
+                                    <AlertCircle size={17} />
+                                    <p>{failure}</p>
                                 </div>
                             )}
-
-                            <button
-                                type="submit"
-                                disabled={verify.isPending}
-                                className="w-full flex items-center justify-center gap-2 py-3 rounded-xl bg-violet-600 hover:bg-violet-500 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold transition"
-                            >
-                                {verify.isPending ? 'Verifying...' : 'Enter'}
-                                {!verify.isPending && <ArrowRight className="w-4 h-4" />}
+                            <button className="login-submit" type="submit" disabled={verify.isPending}>
+                                {verify.isPending ? (
+                                    <>
+                                        <RefreshCw size={17} className="login-spin" />
+                                        <span role="status">Verifying access…</span>
+                                    </>
+                                ) : (
+                                    <>
+                                        Open dashboard
+                                        <ArrowRight size={17} />
+                                    </>
+                                )}
                             </button>
                         </form>
-
-                        <p className="mt-6 text-xs text-slate-500 text-center leading-relaxed">
-                            The key is stored in this browser only. It is the value of
-                            <span className="text-slate-400 font-mono"> MASTER_API_KEY </span>
-                            in the proxy&apos;s <span className="font-mono">.env</span>.
-                        </p>
-                    </div>
-                </div>
+                        <details className="login-help">
+                            <summary>
+                                Where do I find my key?
+                                <ChevronDown size={15} />
+                            </summary>
+                            <p>
+                                Use the <code>MASTER_API_KEY</code> value configured for your proxy. If
+                                someone else manages it, ask them for the key.
+                            </p>
+                        </details>
+                        <div className="login-storage-note">
+                            <LockKeyhole size={14} />
+                            <p>
+                                {remember
+                                    ? 'Your verified key stays on this device until you sign out. Use this option on a device you trust.'
+                                    : 'Your verified key is kept in this tab’s browser session. Sign out when you are finished on a shared device.'}
+                            </p>
+                        </div>
+                    </section>
+                </main>
+                <footer className="login-footer">
+                    <span>ProxyVault</span>
+                    <p>Traffic, connections, and access. All in one place.</p>
+                </footer>
             </div>
         </div>
     )

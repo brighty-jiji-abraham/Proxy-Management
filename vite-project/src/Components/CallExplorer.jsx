@@ -58,7 +58,10 @@ export default function CallExplorer({
     onClear,
     clearPending,
     explorerRef,
+    scope = 'services',
+    sampleLimit = 500,
 }) {
+    const serviceDetails = scope !== 'tunnel'
     const [expanded, setExpanded] = useState(null)
     const filtered = useMemo(() => filterCalls(requests, filters), [requests, filters])
     const methods = [...new Set(requests.map((r) => r.method).filter(Boolean))].sort()
@@ -91,15 +94,17 @@ export default function CallExplorer({
                         <ArrowDownToLine size={15} />
                         Export CSV
                     </button>
-                    <button
-                        className="calls-icon-button calls-danger-button"
-                        onClick={onClear}
-                        disabled={clearPending}
-                        title={`Clear history for ${route || 'all services'}`}
-                        aria-label="Clear history"
-                    >
-                        <Trash2 size={16} />
-                    </button>
+                    {onClear && (
+                        <button
+                            className="calls-icon-button calls-danger-button"
+                            onClick={onClear}
+                            disabled={clearPending}
+                            title={`Clear history for ${route || 'all services'}`}
+                            aria-label="Clear history"
+                        >
+                            <Trash2 size={16} />
+                        </button>
+                    )}
                 </div>
             </PanelHeading>
             <div className="calls-explorer-toolbar">
@@ -154,7 +159,9 @@ export default function CallExplorer({
                     <p>
                         {hasFilters
                             ? 'Try another search or reset the filters to see all retained calls.'
-                            : 'Send a request to a configured service to start exploring its activity.'}
+                            : serviceDetails
+                              ? 'Send a request to a configured service to start exploring its activity.'
+                              : 'Requests appear here after they cross the tunnel.'}
                     </p>
                     {hasFilters && (
                         <button
@@ -172,8 +179,8 @@ export default function CallExplorer({
                             <tr>
                                 <th scope="col">Time</th>
                                 <th scope="col">Request</th>
-                                <th scope="col">Service</th>
-                                <th scope="col">Caller</th>
+                                {serviceDetails && <th scope="col">Service</th>}
+                                {serviceDetails && <th scope="col">Caller</th>}
                                 <th scope="col">Status</th>
                                 <th scope="col">Duration</th>
                                 <th scope="col">
@@ -230,14 +237,20 @@ export default function CallExplorer({
                                                     </span>
                                                 )}
                                             </td>
-                                            <td>
-                                                <span className="calls-route-text">
-                                                    {request.route || '—'}
-                                                </span>
-                                            </td>
-                                            <td>
-                                                <span className="calls-caller">{request.client || '—'}</span>
-                                            </td>
+                                            {serviceDetails && (
+                                                <td>
+                                                    <span className="calls-route-text">
+                                                        {request.route || '—'}
+                                                    </span>
+                                                </td>
+                                            )}
+                                            {serviceDetails && (
+                                                <td>
+                                                    <span className="calls-caller">
+                                                        {request.client || '—'}
+                                                    </span>
+                                                </td>
+                                            )}
                                             <td>
                                                 <span className={`calls-status ${tone}`}>
                                                     <i />
@@ -272,20 +285,24 @@ export default function CallExplorer({
                                         </tr>
                                         {open && (
                                             <tr id={detailId} className="calls-detail-row">
-                                                <td colSpan="7">
+                                                <td colSpan={serviceDetails ? 7 : 5}>
                                                     <div className="calls-request-details">
                                                         <div>
                                                             <span>Full request path</span>
                                                             <CopyValue value={request.path} />
                                                         </div>
-                                                        <div>
-                                                            <span>Backend</span>
-                                                            <CopyValue value={request.backend} />
-                                                        </div>
-                                                        <div>
-                                                            <span>Caller</span>
-                                                            <CopyValue value={request.client} />
-                                                        </div>
+                                                        {serviceDetails && (
+                                                            <div>
+                                                                <span>Backend</span>
+                                                                <CopyValue value={request.backend} />
+                                                            </div>
+                                                        )}
+                                                        {serviceDetails && (
+                                                            <div>
+                                                                <span>Caller</span>
+                                                                <CopyValue value={request.client} />
+                                                            </div>
+                                                        )}
                                                         <div>
                                                             <span>Recorded at</span>
                                                             <p>
@@ -329,7 +346,11 @@ export default function CallExplorer({
                     {filtered.length
                         ? `${number(page * PAGE_SIZE + 1)}–${number(Math.min((page + 1) * PAGE_SIZE, filtered.length))} of ${number(filtered.length)} calls`
                         : '0 calls'}
-                    <small>Up to {number(capacity || 200)} retained per service; latest 500 loaded.</small>
+                    <small>
+                        Up to {number(capacity || 200)} retained
+                        {serviceDetails ? ' per service' : ' in the tunnel'}; latest {number(sampleLimit)}{' '}
+                        loaded.
+                    </small>
                 </span>
                 <div>
                     <button

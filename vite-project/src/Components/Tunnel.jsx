@@ -1,368 +1,451 @@
-import React, { useState, useEffect } from 'react'
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useForm } from 'react-hook-form'
 import {
-    Radio, RefreshCw, AlertCircle, CheckCircle, XCircle,
-    Globe, Server, Activity, Repeat, Network, Clock, Save, Database,
+    Activity,
+    AlertCircle,
+    Check,
+    Clock3,
+    Info,
+    Network,
+    Radio,
+    RefreshCw,
+    Repeat,
+    Save,
+    Settings2,
+    ShieldCheck,
+    Timer,
 } from 'lucide-react'
 import dashboardServices from '../services/dashboard.service'
-import { TrafficChart, RequestLog } from './RequestActivity'
+import { PanelHeading, TrafficPanel } from './CallCharts'
+import CallExplorer from './CallExplorer'
+import TunnelConnectionMap from './TunnelConnectionMap'
+import {
+    ServiceHeader,
+    ServiceMetric,
+    ServiceBanner,
+    ServiceBadge,
+    ServiceState,
+    ServiceFooter,
+} from './ServiceUI'
+import { analyzeCalls, duration, number } from '../utils/callAnalytics'
+import { uptimeLabel } from '../utils/dashboardAnalytics'
+import { measured, pollingOptions, tunnelPayload, validUrl } from '../utils/serviceAnalytics'
 
-const duration = (seconds) => {
-    if (!seconds) return '0s'
-    const d = Math.floor(seconds / 86400)
-    const h = Math.floor((seconds % 86400) / 3600)
-    const m = Math.floor((seconds % 3600) / 60)
-    const s = seconds % 60
-    if (d) return `${d}d ${h}h`
-    if (h) return `${h}h ${m}m`
-    if (m) return `${m}m ${s}s`
-    return `${s}s`
-}
-
-
-/** Traffic chart and request log, refreshed together. */
-function TunnelActivity() {
-    const activity = useQuery({
-        queryKey: ['tunnel-requests'],
-        queryFn: () => dashboardServices.getTunnelRequests(100),
-        refetchInterval: 10000,
-    })
-
-    const d = activity.data?.data
-    if (!d) return null
-
-    return (
-        <div className="space-y-6">
-            <TrafficChart series={d.traffic || []} emptyText="Nothing has crossed the tunnel yet." />
-            <RequestLog requests={d.requests || []} capacity={d.capacity} />
-        </div>
-    )
-}
-
-
-/**
- * Tunnel settings, stored in MongoDB alongside the routes.
- *
- * These used to live only in .env, which meant every change needed a file
- * edit and a restart. Saving here writes to the database and drops the
- * current socket; the client re-reads its settings on the next reconnect, so
- * the change takes effect without restarting the proxy.
- *
- * The token is write-only. The API reports whether one is set but never
- * returns it, so leaving the field blank keeps whatever is already stored.
- */
-function TunnelSettings() {
-    const queryClient = useQueryClient()
-    const [failure, setFailure] = useState('')
-    const [saved, setSaved] = useState(false)
-
-    const config = useQuery({
-        queryKey: ['tunnel-config'],
-        queryFn: dashboardServices.getTunnelConfig,
-    })
-
-    const { register, handleSubmit, reset } = useForm({
-        defaultValues: { server_url: '', client_name: '', local_target: '', token: '' },
-    })
-
-    const d = config.data?.data
-    // Populate once the settings arrive; the form is uncontrolled otherwise.
-    useEffect(() => {
-        if (d) {
-            reset({
-                server_url: d.server_url || '',
-                client_name: d.client_name || '',
-                local_target: d.local_target || '',
-                token: '',
-            })
-        }
-    }, [d, reset])
-
-    const save = useMutation({
-        mutationFn: dashboardServices.saveTunnelConfig,
-        onSuccess: () => {
-            setFailure('')
-            setSaved(true)
-            setTimeout(() => setSaved(false), 3000)
-            queryClient.invalidateQueries({ queryKey: ['tunnel-config'] })
-            queryClient.invalidateQueries({ queryKey: ['tunnel'] })
-        },
-        onError: (e) => setFailure(e?.friendlyMessage || 'Could not save the settings.'),
-    })
-
-    const onSubmit = (values) => {
-        // An empty token means "leave it alone", not "clear it" - otherwise a
-        // routine edit to the URL would wipe the credential.
-        const payload = { ...values }
-        if (!payload.token) delete payload.token
-        save.mutate(payload)
-    }
-
-    return (
-        <div className="p-6 rounded-2xl bg-slate-900/60 border border-slate-800/70">
-            <div className="flex items-center gap-2 mb-1">
-                <h3 className="text-xl font-bold text-slate-50">Settings</h3>
-                {d && (
-                    <span className="flex items-center gap-1.5 px-2 py-0.5 rounded-lg text-xs font-semibold bg-slate-800 text-slate-400 border border-slate-700">
-                        <Database className="w-3 h-3" />
-                        {d.source === 'database' ? 'stored in MongoDB' : 'reading .env'}
-                    </span>
-                )}
-            </div>
-            <p className="text-xs text-slate-500 mb-5">
-                Saved to MongoDB and applied on the next reconnect - no restart needed.
-            </p>
-
-            <form onSubmit={handleSubmit(onSubmit)} className="space-y-4 max-w-xl">
-                <div className="space-y-2">
-                    <label className="text-sm font-semibold text-slate-300">Tunnel head URL</label>
-                    <input
-                        {...register('server_url')}
-                        placeholder="wss://your-server:9000/tunnel-agent"
-                        className="w-full px-4 py-3 rounded-xl bg-slate-950/60 border border-slate-700/50 text-slate-100 font-mono text-sm placeholder-slate-600 outline-none focus:ring-2 focus:ring-violet-500/40 transition"
-                    />
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <div className="space-y-2">
-                        <label className="text-sm font-semibold text-slate-300">Client name</label>
-                        <input
-                            {...register('client_name')}
-                            placeholder="gpu-box"
-                            className="w-full px-4 py-3 rounded-xl bg-slate-950/60 border border-slate-700/50 text-slate-100 text-sm placeholder-slate-600 outline-none focus:ring-2 focus:ring-violet-500/40 transition"
-                        />
-                    </div>
-                    <div className="space-y-2">
-                        <label className="text-sm font-semibold text-slate-300">Forwards to</label>
-                        <input
-                            {...register('local_target')}
-                            placeholder="http://127.0.0.1:2000"
-                            className="w-full px-4 py-3 rounded-xl bg-slate-950/60 border border-slate-700/50 text-slate-100 font-mono text-sm placeholder-slate-600 outline-none focus:ring-2 focus:ring-violet-500/40 transition"
-                        />
-                    </div>
-                </div>
-
-                <div className="space-y-2">
-                    <label className="text-sm font-semibold text-slate-300">
-                        Token{' '}
-                        <span className="font-normal text-slate-500">
-                            {d?.token_set
-                                ? d.token_from_env
-                                    ? '- currently set in .env'
-                                    : '- currently set, leave blank to keep it'
-                                : '- not set'}
-                        </span>
-                    </label>
-                    <input
-                        type="password"
-                        autoComplete="off"
-                        {...register('token')}
-                        placeholder={d?.token_set ? 'Unchanged' : 'Must match the tunnel head'}
-                        className="w-full px-4 py-3 rounded-xl bg-slate-950/60 border border-slate-700/50 text-slate-100 font-mono text-sm placeholder-slate-600 outline-none focus:ring-2 focus:ring-violet-500/40 transition"
-                    />
-                    <p className="text-xs text-slate-500">
-                        Stored in MongoDB. Anyone who can read that database can impersonate
-                        this machine, so keep it access-controlled.
-                    </p>
-                </div>
-
-                {failure && (
-                    <div className="flex items-start gap-2 p-3 rounded-xl bg-red-500/10 border border-red-500/30">
-                        <AlertCircle className="w-4 h-4 text-red-400 mt-0.5 shrink-0" />
-                        <p className="text-sm text-red-300">{failure}</p>
-                    </div>
-                )}
-
-                <div className="flex items-center gap-3">
-                    <button
-                        type="submit"
-                        disabled={save.isPending}
-                        className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-violet-600 hover:bg-violet-500 disabled:opacity-50 text-white font-bold transition"
-                    >
-                        <Save className="w-4 h-4" />
-                        {save.isPending ? 'Saving...' : 'Save and reconnect'}
-                    </button>
-                    {saved && (
-                        <span className="text-sm text-emerald-400 font-semibold">
-                            Saved - reconnecting
-                        </span>
-                    )}
-                </div>
-            </form>
-        </div>
-    )
-}
-
-
-/**
- * Outbound tunnel health.
- *
- * Reads GET /admin/tunnel on the proxy, not the tunnel head's own
- * /_tunnel/* endpoints: those are bound to a private port on the public
- * server and firewalled off from this browser by design. The client running
- * inside the proxy knows its own state just as well.
- */
 function Tunnel() {
+    const explorerRef = useRef(null)
+    const [paused, setPaused] = useState(false)
+    const [minutes, setMinutes] = useState(60)
+    const [filters, setFilters] = useState({ search: '', outcome: 'all', method: 'all', page: 0 })
     const tunnel = useQuery({
         queryKey: ['tunnel'],
         queryFn: dashboardServices.getTunnelStatus,
-        // Faster than the other panels: this is the thing that flaps.
-        refetchInterval: 5000,
+        ...pollingOptions(paused, 5000),
     })
-
-    const data = tunnel.data?.data || {}
-    const configured = data.configured
-    const connected = data.connected
-
+    const activity = useQuery({
+        queryKey: ['tunnel-requests'],
+        queryFn: () => dashboardServices.getTunnelRequests(100),
+        ...pollingOptions(paused, 10000),
+    })
+    const config = useQuery({
+        queryKey: ['tunnel-config'],
+        queryFn: dashboardServices.getTunnelConfig,
+        ...pollingOptions(true, 0),
+    })
+    const sources = [
+        { ...tunnel, label: 'Tunnel status' },
+        { ...activity, label: 'Tunnel activity' },
+        { ...config, label: 'Tunnel settings' },
+    ]
+    const data = tunnel.data?.data
+    const analytics = useMemo(() => analyzeCalls(activity.data?.data, minutes), [activity.data, minutes])
+    const serverWindow = activity.data?.data?.window_minutes || 60
+    const ranges = [...new Set([15, 30, 60, serverWindow].filter((value) => value <= serverWindow))].sort(
+        (a, b) => a - b
+    )
+    const tone = tunnel.isError
+        ? 'amber'
+        : !data
+          ? 'unknown'
+          : data.connected
+            ? 'healthy'
+            : data.configured
+              ? 'unhealthy'
+              : 'unknown'
+    const statusTitle = tunnel.isError
+        ? 'Connection status unavailable'
+        : !data
+          ? 'Checking the tunnel'
+          : data.connected
+            ? 'Tunnel connected'
+            : data.configured
+              ? 'Tunnel disconnected'
+              : 'Running locally'
+    const statusDescription = tunnel.isError
+        ? 'Refresh to check the link. Any previous snapshot is shown below.'
+        : !data
+          ? 'Waiting for the proxy to report its connection.'
+          : data.connected
+            ? 'The tunnel head has accepted this client. Requests can reach the local target.'
+            : data.configured
+              ? 'The tunnel has not reported an active connection. Review its settings and latest error below.'
+              : 'No tunnel head is configured. Add your connection settings below to publish local services.'
     return (
-        <div className="p-6 space-y-6">
-            <div className="flex items-start justify-between gap-4 flex-wrap">
-                <div>
-                    <h1 className="text-3xl font-black text-slate-50 mb-1">Tunnel</h1>
-                    <p className="text-violet-300/85 font-semibold">
-                        Outbound link publishing this machine to the public server
-                    </p>
-                </div>
-                <button
-                    onClick={() => tunnel.refetch()}
-                    className="flex items-center gap-2 px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 transition"
+        <div className="calls-page service-page tunnel-page">
+            <ServiceHeader
+                icon={Radio}
+                title="Tunnel"
+                description="Follow the connection from your public server to this machine."
+                sources={sources}
+                paused={paused}
+                onPause={() => {
+                    if (paused) {
+                        tunnel.refetch()
+                        activity.refetch()
+                    }
+                    setPaused((value) => !value)
+                }}
+                interval="every 5 seconds; traffic every 10 seconds"
+            />
+            <div className="service-content">
+                <ServiceBanner
+                    icon={data?.connected && !tunnel.isError ? ShieldCheck : Radio}
+                    tone={tone}
+                    title={statusTitle}
+                    description={statusDescription}
                 >
-                    <RefreshCw className={`w-4 h-4 ${tunnel.isFetching ? 'animate-spin' : ''}`} />
-                    Refresh
-                </button>
-            </div>
-
-            {tunnel.isError && (
-                <div className="flex items-start gap-2 p-4 rounded-2xl bg-red-500/10 border border-red-500/30">
-                    <AlertCircle className="w-5 h-5 text-red-400 mt-0.5 shrink-0" />
-                    <p className="text-sm text-red-300">
-                        {tunnel.error?.friendlyMessage || 'Could not reach the proxy.'}
-                    </p>
+                    <span>Connected for</span>
+                    <strong>{data?.connected ? uptimeLabel(data.connected_seconds) : '—'}</strong>
+                </ServiceBanner>
+                <div className="calls-metrics">
+                    <ServiceMetric
+                        icon={Activity}
+                        label="Requests served"
+                        value={measured(data?.requests_served) ? number(data.requests_served) : null}
+                        note="Since the tunnel client started"
+                    />
+                    <ServiceMetric
+                        icon={Clock3}
+                        label="In flight"
+                        value={data?.requests_in_flight}
+                        note="Requests being forwarded now"
+                        color="cyan"
+                    />
+                    <ServiceMetric
+                        icon={Network}
+                        label="WebSocket sessions"
+                        value={data?.websocket_sessions}
+                        note="Currently open through the tunnel"
+                        color="green"
+                    />
+                    <ServiceMetric
+                        icon={Repeat}
+                        label="Reconnects"
+                        value={data?.reconnects}
+                        note="Total since the client started"
+                        color="amber"
+                    />
                 </div>
-            )}
-
-            {!configured ? (
-                <>
-                    <div className="p-8 rounded-2xl bg-slate-900/60 border border-slate-800/70 text-center">
-                        <Radio className="w-10 h-10 text-slate-700 mx-auto mb-3" />
-                        <p className="text-slate-300 font-bold mb-1">Tunnel not configured</p>
-                        <p className="text-sm text-slate-500 max-w-md mx-auto">
-                            Fill in the tunnel head URL and token below and save. Until then
-                            the proxy runs local-only, which is a valid setup rather than an
-                            error.
-                        </p>
-                    </div>
-                    <TunnelSettings />
-                </>
-            ) : (
-                <>
-                    <div
-                        className={`p-6 rounded-2xl border ${
-                            connected
-                                ? 'bg-emerald-500/10 border-emerald-500/30'
-                                : 'bg-red-500/10 border-red-500/30'
-                        }`}
-                    >
-                        <div className="flex items-center gap-3 mb-2">
-                            {connected ? (
-                                <CheckCircle className="w-7 h-7 text-emerald-400" />
-                            ) : (
-                                <XCircle className="w-7 h-7 text-red-400" />
-                            )}
-                            <div>
-                                <h2
-                                    className={`text-2xl font-black ${
-                                        connected ? 'text-emerald-200' : 'text-red-200'
-                                    }`}
-                                >
-                                    {connected ? 'Connected' : 'Disconnected'}
-                                </h2>
-                                <p
-                                    className={`text-sm ${
-                                        connected ? 'text-emerald-200/70' : 'text-red-200/70'
-                                    }`}
-                                >
-                                    {connected
-                                        ? `Up for ${duration(data.connected_seconds)}`
-                                        : 'Reconnecting with exponential backoff (1s to 30s)'}
-                                </p>
-                            </div>
-                        </div>
-                        {data.last_error && !connected && (
-                            <p className="mt-3 text-sm text-red-300/80 font-mono break-all">
-                                {data.last_error}
-                            </p>
-                        )}
-                    </div>
-
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-                        <Stat icon={<Activity />} label="Requests served" value={data.requests_served ?? 0} />
-                        <Stat icon={<Clock />} label="In flight" value={data.requests_in_flight ?? 0} />
-                        <Stat icon={<Network />} label="WebSocket sessions" value={data.websocket_sessions ?? 0} />
-                        <Stat
-                            icon={<Repeat />}
-                            label="Reconnects"
-                            value={data.reconnects ?? 0}
-                            warn={(data.reconnects ?? 0) > 5}
+                <section className="calls-panel">
+                    <PanelHeading
+                        icon={Network}
+                        title="Connection map"
+                        subtitle="The tunnel client connects outward; incoming requests travel to the local target."
+                    />
+                    <ServiceState query={tunnel} title="Connection details">
+                        <TunnelConnectionMap
+                            data={data}
+                            updatedAt={tunnel.dataUpdatedAt}
+                            paused={paused}
+                            unavailable={tunnel.isError}
+                            onInspectRequests={() => {
+                                explorerRef.current?.scrollIntoView({
+                                    behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches
+                                        ? 'instant'
+                                        : 'smooth',
+                                    block: 'start',
+                                })
+                                explorerRef.current
+                                    ?.querySelector('input[type="search"]')
+                                    ?.focus({ preventScroll: true })
+                            }}
                         />
-                    </div>
-
-                    <div className="p-6 rounded-2xl bg-slate-900/60 border border-slate-800/70 space-y-4">
-                        <h3 className="text-xl font-bold text-slate-50">Link</h3>
-                        <Row icon={<Globe />} label="Tunnel head" value={data.server_url} />
-                        <Row icon={<Server />} label="Forwards to" value={data.local_target} />
-                        <Row icon={<Radio />} label="Client name" value={data.client_name} />
-                    </div>
-
-                    <TunnelActivity />
-
-                    <TunnelSettings />
-
-                    {(data.reconnects ?? 0) > 5 && (
-                        <div className="flex items-start gap-3 p-4 rounded-2xl bg-amber-500/10 border border-amber-500/30">
-                            <AlertCircle className="w-5 h-5 text-amber-400 mt-0.5 shrink-0" />
-                            <div className="text-sm text-amber-200/90">
-                                <p className="font-semibold mb-1">The link is flapping.</p>
-                                <p className="text-amber-200/70">
-                                    {data.reconnects} reconnects since start. A connection that is up
-                                    right now can still have been down for most of the day - check the
-                                    head&apos;s <span className="font-mono">/_tunnel/metrics</span> for
-                                    its availability figure.
-                                </p>
+                        {data?.last_error && data.configured && (
+                            <div className="service-feedback" role="status">
+                                <AlertCircle size={16} />
+                                <span>Last connection error: {data.last_error}</span>
                             </div>
+                        )}
+                        <p className="service-panel-note">
+                            Reconnects are a lifetime count, not an outage rate. The connected duration
+                            describes the current session.
+                        </p>
+                    </ServiceState>
+                </section>
+                <div className="service-section-heading">
+                    <div>
+                        <h2>Tunnel activity</h2>
+                        <p>HTTP requests and WebSocket upgrades recorded by this tunnel.</p>
+                    </div>
+                    <div className="calls-segment" aria-label="Tunnel traffic window">
+                        {ranges.map((value) => (
+                            <button
+                                key={value}
+                                aria-pressed={analytics.windowMinutes === value}
+                                onClick={() => {
+                                    setMinutes(value)
+                                    setFilters((previous) => ({ ...previous, page: 0 }))
+                                }}
+                            >
+                                {value === 60 ? '1 hour' : value + ' min'}
+                            </button>
+                        ))}
+                    </div>
+                </div>
+                <ServiceState query={activity} title="Tunnel activity">
+                    <div className="tunnel-chart-grid">
+                        <TrafficPanel analytics={analytics} />
+                        <section className="calls-panel">
+                            <PanelHeading
+                                icon={Timer}
+                                title="Window insights"
+                                subtitle={'Across the last ' + analytics.windowMinutes + ' minutes.'}
+                            />
+                            <div className="tunnel-summary-list">
+                                <div>
+                                    <span>Completed calls</span>
+                                    <strong>{number(analytics.total)}</strong>
+                                </div>
+                                <div>
+                                    <span>Failed calls</span>
+                                    <strong>{number(analytics.errors)}</strong>
+                                </div>
+                                <div>
+                                    <span>Average response</span>
+                                    <strong>{duration(analytics.average)}</strong>
+                                </div>
+                                <div>
+                                    <span>Successful calls</span>
+                                    <strong>
+                                        {analytics.successRate == null
+                                            ? '—'
+                                            : analytics.successRate.toFixed(1) + '%'}
+                                    </strong>
+                                </div>
+                            </div>
+                            <p className="service-panel-note">
+                                Failures include HTTP errors and transport errors. Quiet minutes do not
+                                contribute a zero latency.
+                            </p>
+                        </section>
+                    </div>
+                    <CallExplorer
+                        explorerRef={explorerRef}
+                        requests={analytics.requests}
+                        filters={filters}
+                        onFilters={setFilters}
+                        capacity={activity.data?.data?.capacity}
+                        route="tunnel"
+                        scope="tunnel"
+                        sampleLimit={100}
+                    />
+                </ServiceState>
+                <section className="calls-panel">
+                    <PanelHeading
+                        icon={Settings2}
+                        title="Connection settings"
+                        subtitle="Save the connection details and apply them to the tunnel client."
+                    >
+                        {config.data?.data && (
+                            <span className="calls-tag">
+                                {config.data.data.source === 'database'
+                                    ? 'Saved configuration'
+                                    : 'Host configuration'}
+                            </span>
+                        )}
+                    </PanelHeading>
+                    <ServiceState query={config} title="Tunnel settings">
+                        <TunnelSettings data={config.data?.data} />
+                    </ServiceState>
+                </section>
+                <ServiceFooter sources={sources}>
+                    Connection status refreshes every 5 seconds, activity every 10 seconds. Request history is
+                    kept in memory and resets when the proxy restarts. The explorer shows the latest 100
+                    retained records within the selected window.
+                </ServiceFooter>
+            </div>
+        </div>
+    )
+}
+
+function TunnelSettings({ data }) {
+    const queryClient = useQueryClient()
+    const {
+        register,
+        handleSubmit,
+        reset,
+        formState: { errors, isDirty },
+    } = useForm({
+        defaultValues: {
+            server_url: data?.server_url || '',
+            client_name: data?.client_name || '',
+            local_target: data?.local_target || '',
+            token: '',
+        },
+    })
+    useEffect(() => {
+        if (data && !isDirty)
+            reset({
+                server_url: data.server_url || '',
+                client_name: data.client_name || '',
+                local_target: data.local_target || '',
+                token: '',
+            })
+    }, [data, isDirty, reset])
+    const save = useMutation({
+        mutationFn: dashboardServices.saveTunnelConfig,
+        onSuccess: (result, submitted) => {
+            const values = result.data || submitted
+            reset({
+                server_url: values.server_url || '',
+                client_name: values.client_name || '',
+                local_target: values.local_target || '',
+                token: '',
+            })
+            if (result.data) queryClient.setQueryData(['tunnel-config'], { data: result.data })
+            else queryClient.invalidateQueries({ queryKey: ['tunnel-config'] })
+            queryClient.invalidateQueries({ queryKey: ['tunnel'] })
+        },
+    })
+    return (
+        <div className="service-grid">
+            <form
+                className="service-form"
+                onSubmit={handleSubmit((values) => save.mutate(tunnelPayload(values)))}
+            >
+                <fieldset disabled={save.isPending}>
+                    <div className="service-field">
+                        <label htmlFor="tunnel-head">Tunnel head URL</label>
+                        <input
+                            id="tunnel-head"
+                            placeholder="wss://your-server:9000/tunnel-agent"
+                            aria-invalid={Boolean(errors.server_url)}
+                            aria-describedby="tunnel-head-help"
+                            {...register('server_url', {
+                                validate: (value) =>
+                                    validUrl(value, ['ws:', 'wss:'], true) ||
+                                    'Use a valid ws:// or wss:// URL.',
+                            })}
+                        />
+                        <small
+                            id="tunnel-head-help"
+                            className={errors.server_url ? 'service-field-error' : ''}
+                        >
+                            {errors.server_url?.message || 'Leave blank to use the host configuration.'}
+                        </small>
+                    </div>
+                    <div className="service-field-row">
+                        <div className="service-field">
+                            <label htmlFor="tunnel-client">Client name</label>
+                            <input id="tunnel-client" placeholder="gpu-box" {...register('client_name')} />
                         </div>
-                    )}
-                </>
-            )}
-        </div>
-    )
-}
-
-function Stat({ icon, label, value, warn }) {
-    return (
-        <div className="p-5 rounded-2xl bg-slate-900/60 border border-slate-800/70">
-            <div className={`mb-2 ${warn ? 'text-amber-400' : 'text-violet-400'}`}>
-                {React.cloneElement(icon, { className: 'w-5 h-5' })}
+                        <div className="service-field">
+                            <label htmlFor="tunnel-target">Local target URL</label>
+                            <input
+                                id="tunnel-target"
+                                placeholder="http://127.0.0.1:2000"
+                                aria-invalid={Boolean(errors.local_target)}
+                                aria-describedby={errors.local_target ? 'tunnel-target-error' : undefined}
+                                {...register('local_target', {
+                                    validate: (value) =>
+                                        validUrl(value, ['http:', 'https:'], true) ||
+                                        'Use a valid http:// or https:// URL.',
+                                })}
+                            />
+                            {errors.local_target && (
+                                <small id="tunnel-target-error" className="service-field-error">
+                                    {errors.local_target.message}
+                                </small>
+                            )}
+                        </div>
+                    </div>
+                    <div className="service-field">
+                        <label htmlFor="tunnel-token">Tunnel token</label>
+                        <input
+                            id="tunnel-token"
+                            type="password"
+                            autoComplete="new-password"
+                            placeholder={
+                                data?.token_set
+                                    ? 'Leave blank to keep the current token'
+                                    : 'Enter the token from the tunnel head'
+                            }
+                            aria-describedby="tunnel-token-help"
+                            {...register('token')}
+                        />
+                        <small id="tunnel-token-help">
+                            The current token is never displayed. Leaving this blank keeps it unchanged.
+                        </small>
+                    </div>
+                </fieldset>
+                {save.isError && (
+                    <div className="service-feedback" role="alert">
+                        <AlertCircle size={16} />
+                        <span>{save.error?.friendlyMessage || 'Could not save settings. Try again.'}</span>
+                    </div>
+                )}
+                {save.isSuccess && !isDirty && (
+                    <div className="service-feedback success" role="status">
+                        <Check size={16} />
+                        <span>
+                            {save.data?.reconnecting
+                                ? 'Settings saved. The tunnel is reconnecting.'
+                                : 'Settings saved. If the tunnel stays disconnected, restart the proxy to start it.'}
+                        </span>
+                    </div>
+                )}
+                <div>
+                    <button
+                        className="calls-button service-primary-button"
+                        type="submit"
+                        disabled={save.isPending || !isDirty}
+                    >
+                        {save.isPending ? <RefreshCw size={15} className="calls-spin" /> : <Save size={15} />}
+                        {save.isPending ? 'Saving…' : 'Save and reconnect'}
+                    </button>
+                </div>
+            </form>
+            <div className="service-column">
+                <dl className="service-data-list">
+                    <div>
+                        <dt>Settings source</dt>
+                        <dd>{data?.source === 'database' ? 'Saved in database' : 'Host environment'}</dd>
+                    </div>
+                    <div>
+                        <dt>Token</dt>
+                        <dd>
+                            <ServiceBadge tone={data?.token_set ? 'healthy' : 'amber'}>
+                                {data?.token_set ? 'Configured' : 'Not configured'}
+                            </ServiceBadge>
+                        </dd>
+                    </div>
+                    <div>
+                        <dt>Changes</dt>
+                        <dd>{isDirty ? 'Unsaved edits' : 'Up to date'}</dd>
+                    </div>
+                </dl>
+                <p className="service-inline-note">
+                    <Info size={17} />
+                    <span>
+                        Saving persists these settings and asks the active tunnel to reconnect. Existing
+                        connections may briefly disconnect. A master API key is required.
+                    </span>
+                </p>
+                <p className="service-panel-note">
+                    Host values are used when a saved URL or client name is blank. The token field only
+                    replaces the credential when you enter a new value.
+                </p>
             </div>
-            <div className={`text-3xl font-black ${warn ? 'text-amber-300' : 'text-slate-50'}`}>
-                {value}
-            </div>
-            <div className="text-xs text-slate-400 mt-1">{label}</div>
-        </div>
-    )
-}
-
-function Row({ icon, label, value }) {
-    return (
-        <div className="flex items-center justify-between gap-4 py-2 border-b border-slate-800/50 last:border-0">
-            <span className="flex items-center gap-2 text-sm text-slate-400">
-                {React.cloneElement(icon, { className: 'w-4 h-4' })}
-                {label}
-            </span>
-            <span className="text-sm font-mono text-violet-300 break-all text-right">
-                {value || '—'}
-            </span>
         </div>
     )
 }

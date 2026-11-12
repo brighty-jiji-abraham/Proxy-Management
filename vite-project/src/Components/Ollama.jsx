@@ -1,187 +1,457 @@
-import React from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
+import { Link } from 'react-router-dom'
 import axios from 'axios'
 import {
-    Cpu, RefreshCw, AlertCircle, HardDrive, CheckCircle, XCircle, ShieldAlert,
+    ArrowUpRight,
+    Boxes,
+    ChevronDown,
+    Cpu,
+    HardDrive,
+    Info,
+    Layers,
+    Search,
+    ShieldCheck,
+    SlidersHorizontal,
+    X,
 } from 'lucide-react'
+import { PanelHeading } from './CallCharts'
+import {
+    CopyButton,
+    ServiceBanner,
+    ServiceBars,
+    ServiceEmpty,
+    ServiceFooter,
+    ServiceHeader,
+    ServiceMetric,
+    ServiceState,
+} from './ServiceUI'
+import { bytesLabel, filterModels, modelSummary, pollingOptions } from '../utils/serviceAnalytics'
+import { number } from '../utils/callAnalytics'
 
-const gib = (bytes) =>
-    bytes ? `${(bytes / 1024 ** 3).toFixed(1)} GB` : '—'
-
-const when = (iso) => {
-    if (!iso) return '—'
-    const d = new Date(iso)
-    return Number.isNaN(d.getTime()) ? '—' : d.toLocaleDateString()
-}
-
-/**
- * Ollama models and reachability.
- *
- * Goes through the proxy's /ollama route rather than straight to :11434, so
- * what this page reports is what the chatbot actually experiences - if the
- * proxy route is misconfigured, this shows it.
- *
- * Deliberately NOT using the shared `api` client: that one is pinned to the
- * admin base URL (/admin) and attaches the master key, neither of which
- * applies here. /ollama is an unauthenticated passthrough.
- */
+// Use the public proxy route, never the admin client or its master key.
 const proxyRoot = () =>
     (import.meta.env.VITE_baseURL || '').replace(/\/admin\/?$/, '') || 'http://localhost:2000'
+const familyColors = ['#a78bfa', '#38bdf8', '#34d399', '#fbbf24', '#fb7185', '#818cf8', '#94a3b8']
+const modifiedLabel = (value) =>
+    value && Number.isFinite(Date.parse(value)) ? new Date(value).toLocaleDateString() : '—'
 
 function Ollama() {
+    const [paused, setPaused] = useState(false)
+    const [filters, setFilters] = useState({ search: '', family: 'all', sort: 'name' })
+    const libraryRef = useRef(null)
     const tags = useQuery({
         queryKey: ['ollama-tags'],
-        queryFn: async () =>
-            (await axios.get(`${proxyRoot()}/ollama/api/tags`, { timeout: 15000 })).data,
-        refetchInterval: 30000,
-        retry: 1,
+        queryFn: async () => (await axios.get(proxyRoot() + '/ollama/api/tags', { timeout: 15000 })).data,
+        ...pollingOptions(paused, 30000),
     })
-
     const version = useQuery({
         queryKey: ['ollama-version'],
-        queryFn: async () =>
-            (await axios.get(`${proxyRoot()}/ollama/api/version`, { timeout: 10000 })).data,
-        refetchInterval: 60000,
-        retry: 1,
+        queryFn: async () => (await axios.get(proxyRoot() + '/ollama/api/version', { timeout: 10000 })).data,
+        ...pollingOptions(paused, 60000),
     })
-
-    const models = tags.data?.models || []
-    const reachable = !tags.isError && !tags.isLoading
-
+    const sources = [
+        { ...tags, label: 'Model catalog' },
+        { ...version, label: 'Ollama version' },
+    ]
+    const summary = useMemo(() => modelSummary(tags.data), [tags.data])
+    const models = useMemo(() => filterModels(summary.models, filters), [summary.models, filters])
+    const largest = [...summary.models]
+        .filter((model) => model.size != null)
+        .sort((a, b) => b.size - a.size)
+        .slice(0, 6)
+    const reachable = tags.isSuccess
+    const update = (changes) => setFilters((previous) => ({ ...previous, ...changes }))
+    const inspectFamily = (family) => {
+        update({ family, search: '' })
+        libraryRef.current?.scrollIntoView({
+            block: 'start',
+            behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth',
+        })
+    }
+    const resetFilters = () => update({ search: '', family: 'all' })
     return (
-        <div className="p-6 space-y-6">
-            <div className="flex items-start justify-between gap-4 flex-wrap">
-                <div>
-                    <h1 className="text-3xl font-black text-slate-50 mb-1">Ollama</h1>
-                    <p className="text-violet-300/85 font-semibold">
-                        Local models, served through <span className="font-mono">/ollama</span>
-                    </p>
-                </div>
-                <button
-                    onClick={() => { tags.refetch(); version.refetch() }}
-                    className="flex items-center gap-2 px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 transition"
+        <div className="calls-page service-page ollama-page">
+            <ServiceHeader
+                icon={Cpu}
+                title="Ollama"
+                description="Explore the local models available through your proxy."
+                sources={sources}
+                paused={paused}
+                onPause={() => setPaused((value) => !value)}
+                interval="every 30 seconds; version every minute"
+            />
+            <div className="service-content">
+                <ServiceBanner
+                    icon={reachable ? ShieldCheck : Cpu}
+                    tone={tags.isError ? 'unhealthy' : reachable ? 'healthy' : 'unknown'}
+                    title={
+                        tags.isError
+                            ? 'Ollama could not be reached'
+                            : reachable
+                              ? 'Model API reachable'
+                              : 'Checking the model API'
+                    }
+                    description={
+                        tags.isError
+                            ? 'Check the /ollama proxy route and Ollama host. Any previous catalog is shown below.'
+                            : reachable
+                              ? 'The proxy successfully returned the installed model catalog.'
+                              : 'Waiting for a response through the /ollama route.'
+                    }
                 >
-                    <RefreshCw className={`w-4 h-4 ${tags.isFetching ? 'animate-spin' : ''}`} />
-                    Refresh
-                </button>
-            </div>
-
-            <div
-                className={`p-6 rounded-2xl border ${
-                    reachable
-                        ? 'bg-emerald-500/10 border-emerald-500/30'
-                        : tags.isLoading
-                        ? 'bg-slate-900/60 border-slate-800/70'
-                        : 'bg-red-500/10 border-red-500/30'
-                }`}
-            >
-                <div className="flex items-center gap-3">
-                    {tags.isLoading ? (
-                        <RefreshCw className="w-7 h-7 text-slate-500 animate-spin" />
-                    ) : reachable ? (
-                        <CheckCircle className="w-7 h-7 text-emerald-400" />
-                    ) : (
-                        <XCircle className="w-7 h-7 text-red-400" />
-                    )}
-                    <div>
-                        <h2
-                            className={`text-2xl font-black ${
-                                tags.isLoading ? 'text-slate-300' : reachable ? 'text-emerald-200' : 'text-red-200'
-                            }`}
+                    <span>Ollama version{version.isError && version.data ? ' (last known)' : ''}</span>
+                    <strong>{version.data?.version || '—'}</strong>
+                </ServiceBanner>
+                <div className="calls-metrics">
+                    <ServiceMetric
+                        icon={Boxes}
+                        label="Installed model tags"
+                        value={tags.data ? number(summary.models.length) : null}
+                        note="Available in the model catalog"
+                    />
+                    <ServiceMetric
+                        icon={HardDrive}
+                        label="Combined model sizes"
+                        value={
+                            tags.data && (summary.sized || !summary.models.length)
+                                ? bytesLabel(summary.size)
+                                : null
+                        }
+                        color="cyan"
+                        note={
+                            summary.sized < summary.models.length
+                                ? summary.sized + ' of ' + summary.models.length + ' sizes reported'
+                                : 'Sum of reported model sizes'
+                        }
+                    />
+                    <ServiceMetric
+                        icon={Layers}
+                        label="Model families"
+                        value={
+                            tags.data
+                                ? summary.families.filter(([family]) => family !== 'Unknown').length
+                                : null
+                        }
+                        color="green"
+                        note="Distinct reported architectures"
+                    />
+                    <ServiceMetric
+                        icon={SlidersHorizontal}
+                        label="Quantization formats"
+                        value={tags.data ? summary.quantizations : null}
+                        color="amber"
+                        note="Distinct formats in this catalog"
+                    />
+                </div>
+                <div className="service-grid">
+                    <section className="calls-panel">
+                        <PanelHeading
+                            icon={HardDrive}
+                            title="Model size comparison"
+                            subtitle="The six largest model tags, by reported size."
+                        />
+                        <ServiceState query={tags} title="Model sizes">
+                            <ServiceBars
+                                label="Installed model sizes"
+                                emptyText="No model sizes available"
+                                items={largest.map((model) => ({
+                                    key: model.name,
+                                    label: model.name,
+                                    value: model.size,
+                                    display: bytesLabel(model.size),
+                                    color: 'var(--calls-violet)',
+                                }))}
+                            />
+                        </ServiceState>
+                        <p className="service-panel-note">
+                            Models can share stored layers. Combined sizes do not represent actual disk usage
+                            or runtime memory.
+                        </p>
+                    </section>
+                    <section className="calls-panel">
+                        <PanelHeading
+                            icon={Layers}
+                            title="Model families"
+                            subtitle="Select an architecture to filter the catalog."
+                        />
+                        <ServiceState query={tags} title="Model families">
+                            {summary.models.length ? (
+                                <FamilyChart summary={summary} onSelect={inspectFamily} />
+                            ) : (
+                                <ServiceEmpty
+                                    icon={Cpu}
+                                    title="No model families yet"
+                                    description="Families appear when models are installed."
+                                />
+                            )}
+                        </ServiceState>
+                    </section>
+                </div>
+                <section className="calls-panel model-library" ref={libraryRef}>
+                    <PanelHeading
+                        icon={Boxes}
+                        title="Model library"
+                        subtitle="Search names and formats. Expand a model to inspect its metadata."
+                    >
+                        <Link className="service-link" to="/calls?route=%2Follama">
+                            View calls <ArrowUpRight size={13} />
+                        </Link>
+                    </PanelHeading>
+                    <div className="service-toolbar">
+                        <label className="calls-search">
+                            <Search size={16} />
+                            <input
+                                type="search"
+                                aria-label="Search models"
+                                placeholder="Find a model, family, or quantization…"
+                                value={filters.search}
+                                onChange={(event) => update({ search: event.target.value })}
+                            />
+                            {filters.search && (
+                                <button
+                                    aria-label="Clear model search"
+                                    onClick={() => update({ search: '' })}
+                                >
+                                    <X size={14} />
+                                </button>
+                            )}
+                        </label>
+                        <select
+                            className="service-select"
+                            aria-label="Model family"
+                            value={filters.family}
+                            onChange={(event) => update({ family: event.target.value })}
                         >
-                            {tags.isLoading ? 'Checking...' : reachable ? 'Reachable' : 'Unreachable'}
-                        </h2>
-                        <p className={`text-sm ${reachable ? 'text-emerald-200/70' : 'text-red-200/70'}`}>
-                            {reachable
-                                ? `${models.length} model${models.length === 1 ? '' : 's'}${
-                                      version.data?.version ? ` · Ollama ${version.data.version}` : ''
-                                  }`
-                                : tags.isLoading
-                                ? ''
-                                : 'The proxy could not reach Ollama. Is the daemon running on 11434?'}
+                            <option value="all">All families</option>
+                            {summary.families.map(([family]) => (
+                                <option key={family} value={family}>
+                                    {family}
+                                </option>
+                            ))}
+                        </select>
+                        <select
+                            className="service-select"
+                            aria-label="Sort models"
+                            value={filters.sort}
+                            onChange={(event) => update({ sort: event.target.value })}
+                        >
+                            <option value="name">Name A–Z</option>
+                            <option value="size">Largest first</option>
+                            <option value="modified">Recently modified</option>
+                        </select>
+                    </div>
+                    <ServiceState query={tags} title="Model catalog">
+                        {!models.length ? (
+                            <ServiceEmpty
+                                icon={Cpu}
+                                title={summary.models.length ? 'No matching models' : 'No models installed'}
+                                description={
+                                    summary.models.length
+                                        ? 'Try another search or show all model families.'
+                                        : 'Install a model on your Ollama host, then refresh the catalog.'
+                                }
+                            >
+                                {summary.models.length > 0 && (
+                                    <button className="calls-button" onClick={resetFilters}>
+                                        Reset filters
+                                    </button>
+                                )}
+                            </ServiceEmpty>
+                        ) : (
+                            models.map((model) => (
+                                <details className="model-row" key={model.name}>
+                                    <summary>
+                                        <span className="model-icon">
+                                            <Cpu size={18} />
+                                        </span>
+                                        <div className="model-identity">
+                                            <strong>{model.name}</strong>
+                                            <div className="model-tags">
+                                                {[
+                                                    model.family,
+                                                    model.details?.parameter_size,
+                                                    model.details?.quantization_level,
+                                                ]
+                                                    .filter(Boolean)
+                                                    .map((tag, index) => (
+                                                        <span key={index}>{tag}</span>
+                                                    ))}
+                                            </div>
+                                        </div>
+                                        <div className="model-summary-stat">
+                                            <span>Model size</span>
+                                            <strong>{bytesLabel(model.size)}</strong>
+                                        </div>
+                                        <div className="model-summary-stat model-summary-modified">
+                                            <span>Modified</span>
+                                            <strong>{modifiedLabel(model.modified_at)}</strong>
+                                        </div>
+                                        <ChevronDown size={16} className="service-chevron" />
+                                    </summary>
+                                    <div className="service-details">
+                                        <div className="service-detail-grid">
+                                            <div>
+                                                <span>Architecture</span>
+                                                <strong>{model.family}</strong>
+                                            </div>
+                                            <div>
+                                                <span>Parameters</span>
+                                                <strong>
+                                                    {model.details?.parameter_size || 'Not reported'}
+                                                </strong>
+                                            </div>
+                                            <div>
+                                                <span>Quantization</span>
+                                                <strong>
+                                                    {model.details?.quantization_level || 'Not reported'}
+                                                </strong>
+                                            </div>
+                                            <div>
+                                                <span>File format</span>
+                                                <strong>{model.details?.format || 'Not reported'}</strong>
+                                            </div>
+                                            <div>
+                                                <span>Parent model</span>
+                                                <strong>
+                                                    {model.details?.parent_model || 'Not reported'}
+                                                </strong>
+                                            </div>
+                                            <div>
+                                                <span>Last modified</span>
+                                                <strong>
+                                                    {model.modified_at &&
+                                                    Number.isFinite(Date.parse(model.modified_at))
+                                                        ? new Date(model.modified_at).toLocaleString()
+                                                        : 'Not reported'}
+                                                </strong>
+                                            </div>
+                                            <div className="model-details-wide">
+                                                <span>Model name</span>
+                                                <div className="model-copy-row">
+                                                    <code>{model.name}</code>
+                                                    <CopyButton
+                                                        value={model.name}
+                                                        label={'Copy model name ' + model.name}
+                                                    />
+                                                </div>
+                                            </div>
+                                            <div className="model-details-wide">
+                                                <span>Digest</span>
+                                                <strong>{model.digest || 'Not reported'}</strong>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </details>
+                            ))
+                        )}
+                    </ServiceState>
+                    <div className="calls-table-footer">
+                        <span>
+                            {tags.data
+                                ? number(models.length) +
+                                  ' of ' +
+                                  number(summary.models.length) +
+                                  ' model tags shown'
+                                : 'Waiting for the model catalog'}
+                        </span>
+                        <span>Catalog refreshes every 30 seconds</span>
+                    </div>
+                </section>
+                <section className="calls-panel">
+                    <PanelHeading
+                        icon={Info}
+                        title="Proxy access"
+                        subtitle="Connection details for applications using these models."
+                    />
+                    <div className="service-grid">
+                        <div className="service-column">
+                            <dl className="service-data-list">
+                                <div>
+                                    <dt>Base URL</dt>
+                                    <dd>{proxyRoot() + '/ollama'}</dd>
+                                </div>
+                                <div>
+                                    <dt>Model catalog</dt>
+                                    <dd>/ollama/api/tags</dd>
+                                </div>
+                            </dl>
+                        </div>
+                        <p className="service-inline-note">
+                            <Info size={17} />
+                            <span>
+                                This route does not require an API key. Anyone who can reach it can access the
+                                Ollama API. Keep access limited to trusted clients.
+                            </span>
                         </p>
                     </div>
-                </div>
+                </section>
+                <ServiceFooter sources={sources}>
+                    Sizes and metadata come from Ollama's installed model catalog. They do not indicate which
+                    models are loaded into memory. Version information refreshes once a minute.
+                </ServiceFooter>
             </div>
+        </div>
+    )
+}
 
-            {/* This route is intentionally unauthenticated because the embedding
-                client cannot send a key. Worth stating where an operator will
-                see it, not only in the README. */}
-            <div className="flex items-start gap-3 p-4 rounded-2xl bg-amber-500/10 border border-amber-500/30">
-                <ShieldAlert className="w-5 h-5 text-amber-400 mt-0.5 shrink-0" />
-                <div className="text-sm text-amber-200/90">
-                    <p className="font-semibold mb-1">
-                        <span className="font-mono">/ollama</span> requires no API key.
-                    </p>
-                    <p className="text-amber-200/70">
-                        The embedding client cannot send one. That is safe only while the proxy
-                        stays off the public internet - anyone who can reach this route can use
-                        the GPU, pull models until the disk fills, or delete them.
-                    </p>
-                </div>
-            </div>
-
-            {tags.isError && (
-                <div className="flex items-start gap-2 p-4 rounded-2xl bg-red-500/10 border border-red-500/30">
-                    <AlertCircle className="w-5 h-5 text-red-400 mt-0.5 shrink-0" />
-                    <p className="text-sm text-red-300 font-mono break-all">
-                        {tags.error?.message || 'Request failed'}
-                    </p>
-                </div>
-            )}
-
-            {models.length > 0 && (
-                <div className="space-y-3">
-                    <h3 className="text-xl font-bold text-slate-50">Models</h3>
-                    {models.map((m) => (
-                        <div
-                            key={m.digest || m.name}
-                            className="p-5 rounded-2xl bg-slate-900/60 border border-slate-800/70"
-                        >
-                            <div className="flex items-start justify-between gap-4 flex-wrap">
-                                <div className="min-w-0">
-                                    <div className="flex items-center gap-2 mb-2 flex-wrap">
-                                        <Cpu className="w-4 h-4 text-violet-400 shrink-0" />
-                                        <span className="font-bold text-slate-100 font-mono break-all">
-                                            {m.name}
-                                        </span>
-                                    </div>
-                                    <div className="flex gap-3 text-xs text-slate-500 flex-wrap">
-                                        {m.details?.parameter_size && (
-                                            <span className="px-2 py-0.5 rounded bg-slate-800 text-slate-400">
-                                                {m.details.parameter_size}
-                                            </span>
-                                        )}
-                                        {m.details?.quantization_level && (
-                                            <span className="px-2 py-0.5 rounded bg-slate-800 text-slate-400">
-                                                {m.details.quantization_level}
-                                            </span>
-                                        )}
-                                        {m.details?.family && (
-                                            <span className="px-2 py-0.5 rounded bg-slate-800 text-slate-400">
-                                                {m.details.family}
-                                            </span>
-                                        )}
-                                        <span>modified {when(m.modified_at)}</span>
-                                    </div>
-                                </div>
-                                <div className="flex items-center gap-2 text-slate-400 shrink-0">
-                                    <HardDrive className="w-4 h-4" />
-                                    <span className="font-mono text-sm">{gib(m.size)}</span>
-                                </div>
-                            </div>
-                        </div>
+function FamilyChart({ summary, onSelect }) {
+    let offset = 0
+    const segments = summary.families.map(([family, count], index) => {
+        const segment = {
+            family,
+            count,
+            length: (count / summary.models.length) * 100,
+            offset,
+            color: familyColors[index % familyColors.length],
+        }
+        offset += segment.length
+        return segment
+    })
+    return (
+        <div className="model-family-layout">
+            <div className="model-family-ring">
+                <svg
+                    viewBox="0 0 120 120"
+                    role="img"
+                    aria-label={segments
+                        .map((segment) => segment.family + ': ' + segment.count + ' models')
+                        .join(', ')}
+                >
+                    <circle cx="60" cy="60" r="49" stroke="#263249" fill="none" strokeWidth="9" />
+                    {segments.map((segment) => (
+                        <circle
+                            key={segment.family}
+                            cx="60"
+                            cy="60"
+                            r="49"
+                            fill="none"
+                            stroke={segment.color}
+                            strokeWidth="9"
+                            pathLength="100"
+                            strokeDasharray={segment.length + ' ' + (100 - segment.length)}
+                            strokeDashoffset={-segment.offset}
+                        />
                     ))}
+                </svg>
+                <div>
+                    <strong>{summary.models.length}</strong>
+                    <span>model tags</span>
                 </div>
-            )}
-
-            {reachable && models.length === 0 && (
-                <div className="p-12 text-center rounded-2xl bg-slate-900/60 border border-slate-800/70">
-                    <Cpu className="w-10 h-10 text-slate-700 mx-auto mb-3" />
-                    <p className="text-slate-400 font-semibold">No models installed</p>
-                    <p className="text-sm text-slate-600 mt-1 font-mono">ollama pull qwen2.5:14b</p>
-                </div>
-            )}
+            </div>
+            <div className="model-family-legend">
+                {segments.map((segment) => (
+                    <button
+                        key={segment.family}
+                        onClick={() => onSelect(segment.family)}
+                        aria-label={'Show ' + segment.family + ' models'}
+                    >
+                        <i style={{ background: segment.color }} />
+                        <span>{segment.family}</span>
+                        <strong>{segment.count}</strong>
+                    </button>
+                ))}
+            </div>
         </div>
     )
 }

@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { analyzeCalls, callsCsv, duration, filterCalls, percentile } from './callAnalytics.js'
+import { analyzeCalls, callsCsv, duration, filterCalls, latencySeries, percentile } from './callAnalytics.js'
 
 const minute = 1_800_000_000
 const call = (overrides = {}) => ({
@@ -13,6 +13,54 @@ const call = (overrides = {}) => ({
     client: '127.0.0.1',
     backend: 'http://worker:8080',
     ...overrides,
+})
+
+test('sparse latency samples stay connected without inventing zero-latency calls', () => {
+    const series = [120, null, null, 450, 300, null, 200].map((ms, index) => ({
+        minute: minute + index * 60,
+        count: ms == null ? 0 : 1,
+        avg_ms: ms ?? 0,
+    }))
+    const { points, segments } = latencySeries(series)
+    assert.deepEqual(
+        points.map((point) => point.ms),
+        [120, 450, 300, 200]
+    )
+    assert.deepEqual(
+        segments.map(({ from, to, gap }) => [from.index, to.index, gap]),
+        [
+            [0, 3, true],
+            [3, 4, false],
+            [4, 6, true],
+        ]
+    )
+})
+
+test('latency keeps real zero timings but excludes empty and invalid samples', () => {
+    const series = [
+        { minute, count: 1, avg_ms: 0 },
+        { minute: minute + 60, count: 0, avg_ms: 900 },
+        { minute: minute + 120, count: 1, avg_ms: null },
+        { minute: minute + 180, count: 1, avg_ms: -10 },
+        { minute: minute + 240, count: 1, avg_ms: NaN },
+        { minute: minute + 300, count: 1, avg_ms: Infinity },
+    ]
+    assert.deepEqual(latencySeries(series), { points: [{ index: 0, minute, ms: 0 }], segments: [] })
+    assert.deepEqual(latencySeries([]), { points: [], segments: [] })
+})
+
+test('latency does not extrapolate before the first or after the last observation', () => {
+    const { points, segments } = latencySeries([
+        { minute, count: 0, avg_ms: 0 },
+        { minute: minute + 60, count: 1, avg_ms: 120 },
+        { minute: minute + 240, count: 1, avg_ms: 180 },
+        { minute: minute + 300, count: 0, avg_ms: 0 },
+    ])
+    assert.equal(points.length, 2)
+    assert.equal(segments.length, 1)
+    assert.equal(segments[0].from.index, 1)
+    assert.equal(segments[0].to.index, 2)
+    assert.equal(segments[0].gap, true)
 })
 
 test('full traffic totals and weighted average stay independent of retained requests', () => {
